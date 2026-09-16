@@ -25,6 +25,11 @@
 <h2>3. 幅を計算で固定した場合</h2>
 <div class="box fixed" id="c"><div class="palette-families"><div class="palette-family palette-family--dads"><div class="palette-swatches" style="--palette-columns: 13"></div></div></div></div>
 
+<h2>4. ダブルタップの計測</h2>
+<p style="margin:0 0 6px">下の四角を、<b>いつもの調子で2回</b>叩いてください。ペンと指の両方でお願いします。</p>
+<div id="tapper" style="display:grid;place-items:center;height:130px;border:2px dashed #888;border-radius:12px;background:#f7f7f5;touch-action:none;font-size:15px">ここを2回</div>
+<pre id="taps" style="margin-top:6px">まだ計測していません</pre>
+
 <h2>計測結果</h2>
 <pre id="out">…</pre>
 
@@ -67,6 +72,22 @@
   };
   report();
   window.addEventListener("resize", report);
+
+  // ダブルタップの間隔と、2回の指先の距離を測る
+  const tapper = document.querySelector("#tapper");
+  const taps = document.querySelector("#taps");
+  const history = [];
+  tapper.addEventListener("pointerdown", (event) => {
+    const now = { kind: event.pointerType, at: Date.now(), x: event.clientX, y: event.clientY };
+    const last = history[history.length - 1];
+    history.push(now);
+    if (last && now.at - last.at < 1500 && last.kind === now.kind) {
+      const gap = now.at - last.at;
+      const move = Math.round(Math.hypot(now.x - last.x, now.y - last.y) * 10) / 10;
+      const line = `${now.kind}：間隔 ${gap}ms　ずれ ${move}px　${gap <= 350 ? "350ms以内" : "★350msを超えた"}`;
+      taps.textContent = (taps.textContent.startsWith("まだ") ? "" : taps.textContent + "\n") + line;
+    }
+  });
 </script>
 </body>
 </html>
