@@ -30,6 +30,13 @@
 <div id="tapper" style="display:grid;place-items:center;height:130px;border:2px dashed #888;border-radius:12px;background:#f7f7f5;touch-action:none;font-size:15px">ここを2回</div>
 <pre id="taps" style="margin-top:6px">まだ計測していません</pre>
 
+<h2>5. 拡大の止め方くらべ</h2>
+<p style="margin:0 0 6px">それぞれの四角を<b>指で2回</b>叩いて、<b>画面が拡大するかどうか</b>を見てください。</p>
+<div id="zoomA" style="display:grid;place-items:center;height:90px;margin-bottom:8px;border:2px solid #888;border-radius:12px;background:#fdd;touch-action:none;font-size:15px">A：touch-action: none（今と同じ）</div>
+<div id="zoomB" style="display:grid;place-items:center;height:90px;margin-bottom:8px;border:2px solid #888;border-radius:12px;background:#dfd;touch-action:none;font-size:15px">B：2回目の指を離す動作を止める</div>
+<div id="zoomC" style="display:grid;place-items:center;height:90px;margin-bottom:8px;border:2px solid #888;border-radius:12px;background:#ddf;touch-action:manipulation;font-size:15px">C：touch-action: manipulation</div>
+<pre id="zoomLog">まだ叩いていません</pre>
+
 <h2>計測結果</h2>
 <pre id="out">…</pre>
 
@@ -72,6 +79,29 @@
   };
   report();
   window.addEventListener("resize", report);
+
+  // Bだけ、2回目に指を離す動作そのものを止める（拡大の芽を摘む）
+  const zoomLog = document.querySelector("#zoomLog");
+  const note = (line) => {
+    zoomLog.textContent = (zoomLog.textContent.startsWith("まだ") ? "" : zoomLog.textContent + "\n") + line;
+  };
+  let lastB = 0;
+  document.querySelector("#zoomB").addEventListener("touchend", (event) => {
+    const now = Date.now();
+    if (now - lastB < 600) {
+      event.preventDefault();
+      note("B：2回目を止めました（" + (now - lastB) + "ms）");
+    }
+    lastB = now;
+  }, { passive: false });
+  for (const id of ["zoomA", "zoomC"]) {
+    let last = 0;
+    document.querySelector("#" + id).addEventListener("touchend", () => {
+      const now = Date.now();
+      if (now - last < 600) { note(id.slice(4) + "：2回目（" + (now - last) + "ms）"); }
+      last = now;
+    });
+  }
 
   // ダブルタップの間隔と、2回の指先の距離を測る
   const tapper = document.querySelector("#tapper");
