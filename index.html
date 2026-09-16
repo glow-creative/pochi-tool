@@ -9,7 +9,7 @@
     />
     <title>ポチツール</title>
     <link rel="icon" href="pochi-logo.png" />
-    <link rel="stylesheet" href="styles.css?v=20260916-error-label" />
+    <link rel="stylesheet" href="styles.css?v=20260916-start-state" />
   </head>
   <body>
     <div class="app-shell">
@@ -44,19 +44,19 @@
         <aside class="side-panel" aria-label="編集ツール" tabindex="-1">
           <section class="panel-section tool-section">
             <div class="tool-list" role="radiogroup" aria-label="ツールを選択">
-              <button class="tool-card is-active" type="button" data-tool="eraser" role="radio" aria-checked="true" disabled>
+              <button class="tool-card" type="button" data-tool="eraser" role="radio" aria-checked="false">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15.5 4.5 4 4a2 2 0 0 1 0 2.8l-7.7 7.7H6.4l-2-2a2 2 0 0 1 0-2.8l8.3-9.7a2 2 0 0 1 2.8 0Z" /><path d="m9 9 6 6M11.8 19H20" /></svg>
                 <span>消しゴム</span>
                 <kbd>E</kbd>
               </button>
 
-              <button class="tool-card" type="button" data-tool="bucket" role="radio" aria-checked="false" disabled>
+              <button class="tool-card" type="button" data-tool="bucket" role="radio" aria-checked="false">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5.2 12.5 7.6-7.6 6.3 6.3-7.6 7.6a2 2 0 0 1-2.8 0l-3.5-3.5a2 2 0 0 1 0-2.8Z" /><path d="m9.5 8.2 6.3 6.3M19 15.5s2 2.1 2 3.5a2 2 0 0 1-4 0c0-1.4 2-3.5 2-3.5Z" /></svg>
                 <span>バケツ</span>
                 <kbd>B</kbd>
               </button>
 
-              <button class="tool-card" type="button" data-tool="guide" role="radio" aria-checked="false" disabled>
+              <button class="tool-card" type="button" data-tool="guide" role="radio" aria-checked="false">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5.5" cy="18.5" r="2.3" /><circle cx="18.5" cy="5.5" r="2.3" /><path d="M7.1 16.9 16.9 7.1" /></svg>
                 <span>区切り線</span>
                 <kbd>G</kbd>
@@ -203,6 +203,6 @@
     </div>
 
     <script src="image-ops.js"></script>
-    <script src="app.js?v=20260916-tool-arrows"></script>
+    <script src="app.js?v=20260916-start-state"></script>
   </body>
 </html>

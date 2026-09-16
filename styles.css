@@ -58,6 +58,12 @@ body {
   color: var(--ink);
 }
 
+/* iOS enlarges text in some layouts unless told not to. It would take the
+   swatches with it, which are sized from their own line box. */
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
 button,
 input {
   font: inherit;
@@ -353,11 +359,42 @@ input:focus-visible {
 
 .tool-list:has(.tool-card:focus-visible) .tool-card.is-active { box-shadow: none; }
 
-.tool-card:disabled {
-  cursor: not-allowed;
-  opacity: var(--disabled);
-  box-shadow: none;
+/* Before a picture the panel shows what is there without pretending to be in
+   use: no tool in hand, the settings resting, the colours quiet but still
+   readable. The line that says why is the one thing kept at full strength. */
+.side-panel:not(.is-ready) .tool-card { opacity: 0.72; }
+
+.side-panel:not(.is-ready) .tool-speech::before { display: none; }
+
+/* A touch that needs a picture points here for a moment: a ring grows outward
+   from the button's edge and fades, twice. The button itself does not move,
+   grow, or shake, and nothing takes the focus away from the hand. */
+.button.is-nudged { position: relative; }
+
+.button.is-nudged::after {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  content: "";
+  pointer-events: none;
+  animation: open-button-nudge 1s ease-out 2;
 }
+
+@keyframes open-button-nudge {
+  from { box-shadow: 0 0 0 0 rgba(0, 94, 162, 0.55); }
+  to { box-shadow: 0 0 0 16px rgba(0, 94, 162, 0); }
+}
+
+/* Asked not to animate, the same two seconds are held as a plain thick ring. */
+@media (prefers-reduced-motion: reduce) {
+  .button.is-nudged::after {
+    animation: none;
+    box-shadow: 0 0 0 4px rgba(0, 94, 162, 0.5);
+  }
+}
+.side-panel:not(.is-ready) .tool-speech-copy { color: var(--ink); }
+.side-panel:not(.is-ready) .settings-section { opacity: 0.3; }
+.side-panel:not(.is-ready) .color-section { opacity: 0.28; }
 
 .tool-card kbd {
   position: absolute;
@@ -424,7 +461,9 @@ input:focus-visible {
 
 .tool-speech[data-tool="bucket"]::before { left: calc(9px + (100% - 18px) / 2 - 6px); }
 .tool-speech[data-tool="guide"]::before { left: calc(14px + (100% - 18px) * 5 / 6 - 6px); }
-.side-panel:not(.is-ready) .tool-speech { opacity: var(--disabled); }
+/* Before a picture this bubble carries the one line that says what to do, so it
+   keeps its full strength while the controls around it rest. */
+.side-panel:not(.is-ready) .tool-speech { opacity: 1; }
 
 .section-heading {
   display: flex;
@@ -814,6 +853,13 @@ input:focus-visible {
   width: 100%;
   max-width: 25px;
   aspect-ratio: 1;
+  /* A grid item may not shrink below its own content by default, and an empty
+     button still carries a line box. In WebKit that height turns into a least
+     width through the aspect ratio, and the swatches spill over their columns
+     and overlap. Nothing here has content, so none of it is needed. */
+  min-width: 0;
+  min-height: 0;
+  line-height: 0;
   justify-self: center;
   border: 1.5px solid var(--surface);
   border-radius: 7px;
@@ -1002,10 +1048,12 @@ input:focus-visible {
   gap: var(--space-6);
   text-align: center;
   /* More room below than above: dead centre reads as sitting low on the screen.
+     The column's middle lands about a sixteenth of the canvas above the middle
+     of it, which is where the eye looks for the centre.
      --empty-shift, measured by the script, is how far the header's centre line
      (the document name) sits left of the canvas's; twice that on the right moves
      the column onto the same line. */
-  padding: calc(var(--space-6) * 2) calc(var(--space-6) * 2 + var(--empty-shift, 0px) * 2) calc(10vh + 16px) calc(var(--space-6) * 2);
+  padding: calc(var(--space-6) * 2) calc(var(--space-6) * 2 + var(--empty-shift, 0px) * 2) calc(14vh + 16px) calc(var(--space-6) * 2);
 }
 
 /* The drawing is taller than it is wide, so the width is what is sized and the
@@ -1069,16 +1117,16 @@ input:focus-visible {
 }
 
 .button-empty {
-  min-width: 220px;
-  min-height: 56px;
-  gap: 10px;
-  border-radius: 12px;
+  min-width: 304px;
+  min-height: 72px;
+  gap: 12px;
+  border-radius: 15px;
   /* Centring the icon and the words together leaves the words looking pushed to
      the right, since the thin icon weighs less than the words; centring the words
      alone tips it the other way. Half the icon and its gap (15px) goes to the
-     right side, between the two. */
-  padding: 0 43px 0 28px;
-  font-size: 16px;
+     right side, between the two: 18px here, for a 24px icon and a 12px gap. */
+  padding: 0 54px 0 36px;
+  font-size: 20px;
   font-weight: 700;
   letter-spacing: 0.04em;
   /* The USWDS default button: primary at rest, primary-dark under the pointer
@@ -1088,7 +1136,7 @@ input:focus-visible {
   box-shadow: 0 8px 18px rgba(0, 94, 162, 0.24);
 }
 
-.button-empty svg { width: 20px; height: 20px; }
+.button-empty svg { width: 24px; height: 24px; }
 
 .button-empty:hover { background: var(--primary-dark); }
 .button-empty:active { background: var(--primary-darker); }
@@ -1439,7 +1487,9 @@ input:focus-visible {
   .empty-illustration { width: 64px; }
   .empty-copy h2 { font-size: 26px; }
   .empty-copy p { margin: 0 0 var(--space-3); line-height: 1.55; }
-  .button-empty { min-height: 38px; }
+  /* The one button that starts everything keeps a comfortable target even
+     where the height is tight: smaller than usual, never small. */
+  .button-empty { min-height: 48px; padding: 0 48px 0 30px; font-size: 17px; }
 }
 
 /* The same line on a short screen. Below 900px wide the document name is hidden,

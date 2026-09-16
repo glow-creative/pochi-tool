@@ -25,6 +25,13 @@ const GUIDE_DOUBLE_CLICK_WAIT = 350;
 // A fingertip covers far more of the screen than a mouse pointer or a pencil tip,
 // so a finger gets more room to land on a point.
 const GUIDE_TOUCH_GRAB_REACH = 22;
+// The second press of a double tap aims at a point already pressed, so it is
+// allowed to land wider than a pencil's grab, but not so wide that a point put
+// down deliberately nearby is swallowed as a second press.
+const GUIDE_DOUBLE_TAP_REACH = 14;
+// How long the button that opens a picture stays marked after a touch lands
+// somewhere that needs one.
+const NUDGE_TIME = 2000;
 const GUIDE_TOUCH_ERASE_REACH = 28;
 const RECENT_COLOR_LIMIT = 13;
 const ARROW_KEYS = new Set(["arrowleft", "arrowright", "arrowup", "arrowdown"]);
@@ -192,6 +199,11 @@ let guideDrag = null;
 let hoveredGuidePoint = null;
 let pendingGuidePointClick = null;
 let lastTapCornerAt = -Infinity;
+let lastGuidePointPress = null;
+// What the hand reached for before there was a picture to use it on. Kept until
+// a picture opens, then handed over.
+let startIntent = null;
+let nudgeTimer = 0;
 // The point Delete takes away: the last one placed, grabbed or dragged.
 let selectedGuidePoint = null;
 let guideBarrier = null;
@@ -206,6 +218,12 @@ let selectedSwatches = [];
 
 // Said by the tool in hand, in the sidebar under the tools. It stays there for as
 // long as the tool is held, so none of it has to go through a toast that fades.
+const TOOL_NAMES = {
+  eraser: "消しゴム",
+  bucket: "バケツ",
+  guide: "区切り線",
+};
+
 const TOOL_SPEECH = {
   eraser: "透過できます",
   bucket: "塗りつぶしできます",
@@ -381,6 +399,9 @@ function hideSwatchTooltip() {
 function setColorControlsEnabled(enabled) {
   elements.colorHex.disabled = !enabled;
   elements.colorPicker.disabled = !enabled;
+  // Until there is a picture to paint on, the colours are closed off to every
+  // kind of pointer and to the keyboard alike. Faded but still usable was the
+  // worst of both: it said one thing and did another.
   elements.colorSection.setAttribute("aria-disabled", String(!enabled));
   elements.colorSection.inert = !enabled;
   if (!enabled) {
@@ -403,12 +424,16 @@ function setTool(tool) {
 
   state.activeTool = tool;
   for (const button of elements.toolButtons) {
-    const isActive = button.dataset.tool === tool;
+    // Which tool the app is set to, and whether it is in hand. Before a picture
+    // it is set to one without holding it: no black card, no separator missing
+    // beside it, no key mark faded out. The stop Tab makes still sits on it, so
+    // the group stays on the way round.
+    const isCurrent = button.dataset.tool === tool;
+    const isActive = isCurrent && state.imageLoaded;
     button.classList.toggle("is-active", isActive);
     button.setAttribute("aria-checked", String(isActive));
-    // The three are one choice, so Tab stops at the tool in hand, once.
-    button.tabIndex = isActive ? 0 : -1;
   }
+  setToolTabStop(tool);
   elements.toolSpeech.dataset.tool = tool;
   updateGuideActions();
   elements.colorSection.classList.toggle("is-paint-tool-inactive", tool !== "bucket");
@@ -429,11 +454,72 @@ function updateGuideActions() {
   const visible = state.activeTool === "guide" && guidePaths.length > 0;
   elements.guideActions.classList.toggle("is-hidden", !visible);
   elements.toolSpeech.classList.toggle("has-guide-actions", visible);
-  elements.toolSpeechText.textContent = visible
-    ? erasingGuidePointOnce
-      ? `消したい点を${CLICK_WORD}`
-      : "消しゴムもバケツも、この線で止められます"
-    : TOOL_SPEECH[state.activeTool];
+  elements.toolSpeechText.textContent = !state.imageLoaded
+    ? startLine()
+    : visible
+      ? erasingGuidePointOnce
+        ? `消したい点を${CLICK_WORD}`
+        : "消しゴムもバケツも、この線で止められます"
+      : TOOL_SPEECH[state.activeTool];
+}
+
+// What the line above the tools says while there is no picture: what was
+// reached for, and that a picture is what it needs.
+function startLine() {
+  if (startIntent === null) {
+    return "画像を選ぶと、ツールが使えます";
+  }
+
+  return startIntent.tool === null
+    ? "画像を選んで始めます"
+    : `${TOOL_NAMES[startIntent.tool]}を使う画像を選んでください`;
+}
+
+// Before a picture there is one thing to do. A touch anywhere that needs one
+// keeps what was reached for and points at the button that opens a picture; it
+// never reaches into the file system itself, which is not what was asked for.
+function rememberStart(intent) {
+  startIntent = intent;
+  updateGuideActions();
+  pointAtOpenButton();
+}
+
+// The mark goes on whichever of the two buttons is on screen. Taking it off and
+// reading a layout value before putting it back is what plays it again from the
+// start when the next touch comes in before this one has finished.
+function pointAtOpenButton() {
+  const target = elements.emptyState.classList.contains("is-hidden")
+    ? elements.openButton
+    : elements.emptyOpenButton;
+  window.clearTimeout(nudgeTimer);
+  for (const button of [elements.openButton, elements.emptyOpenButton]) {
+    button.classList.remove("is-nudged");
+  }
+  void target.offsetWidth;
+  target.classList.add("is-nudged");
+  nudgeTimer = window.setTimeout(() => {
+    target.classList.remove("is-nudged");
+  }, NUDGE_TIME);
+}
+
+// A tool asked for by a key or a press: taken up when there is a picture, kept
+// for later when there is not.
+function chooseTool(tool) {
+  if (!state.imageLoaded) {
+    // The line names the tool that is waiting, so the stop Tab makes moves onto
+    // that one as well: a press, a key and an arrow all leave it in one place.
+    setToolTabStop(tool);
+    rememberStart({ tool });
+    return;
+  }
+
+  setTool(tool);
+}
+
+function applyStartIntent() {
+  const intent = startIntent;
+  startIntent = null;
+  setTool(intent === null || intent.tool === null ? state.activeTool : intent.tool);
 }
 
 function setGuideErasing(on) {
@@ -685,9 +771,6 @@ function setEditingControlsEnabled(enabled) {
   elements.wholePictureToggle.disabled = !enabled;
   elements.includeWhiteBlackToggle.disabled = !enabled;
   elements.settingsSection.setAttribute("aria-disabled", String(!enabled));
-  for (const button of elements.toolButtons) {
-    button.disabled = !enabled;
-  }
 
   setColorControlsEnabled(enabled);
   updateGuideHelp();
@@ -1148,7 +1231,7 @@ async function loadImageFile(file) {
     updateHistoryButtons();
     updateDocumentState();
     requestAnimationFrame(fitImageToViewport);
-    setTool(state.activeTool);
+    applyStartIntent();
     opened = true;
   } catch {
     setStatus("画像を読み込めませんでした。ファイルを確認してください", { error: true });
@@ -1460,6 +1543,45 @@ function guideReachFor(event, erasing = false) {
   return erasing ? GUIDE_ERASE_REACH : GUIDE_GRAB_REACH;
 }
 
+// The three tools are one stop on the way round, and this says which of them
+// the stop sits on. The arrow keys move it before a picture as well, so Tab
+// comes back to the tool last looked at rather than to the first one.
+function setToolTabStop(tool) {
+  for (const button of elements.toolButtons) {
+    button.tabIndex = button.dataset.tool === tool ? 0 : -1;
+  }
+}
+
+// A pencil sends no dblclick of its own, so two presses on the same point are
+// what turn a corner. The second press may aim looser than a grab does: the
+// first has already said which point is meant.
+function guidePressedAgainAt(point, event, grabbed) {
+  if (lastGuidePointPress === null || Date.now() - lastGuidePointPress.at > GUIDE_DOUBLE_CLICK_WAIT) {
+    return null;
+  }
+
+  const { path, index, point: pressed } = lastGuidePointPress;
+  if (!guidePaths.includes(path) || path[index] !== pressed) {
+    return null;
+  }
+
+  // A press that has taken hold of another point belongs to that point, however
+  // close the two sit.
+  if (grabbed !== null && grabbed.path[grabbed.index] !== pressed) {
+    return null;
+  }
+
+  // Only a pencil needs the wider aim: it sends no dblclick and grabs as
+  // narrowly as a mouse does. A finger keeps its own reach, and a mouse keeps
+  // the narrow one, so a click beside a point is still a new point.
+  const reachOnScreen = event.pointerType === "pen"
+    ? Math.max(GUIDE_GRAB_REACH, GUIDE_DOUBLE_TAP_REACH)
+    : guideReachFor(event);
+  const reach = Math.max(3, reachOnScreen / Math.max(state.viewScale, MIN_ZOOM));
+  const distance = (pressed.x - point.x) ** 2 + (pressed.y - point.y) ** 2;
+  return distance <= reach * reach ? { path, index } : null;
+}
+
 function canContinueGuideFrom(found) {
   return found !== null && activeGuidePath === null;
 }
@@ -1705,7 +1827,7 @@ function removeGuidePoint({ path, index }) {
 // neighbours, instead of crowding more points around it until it looks sharp.
 // A double click asks for it: it lands on a point that is already down, so it
 // costs no gesture of its own and takes nothing from the click that places one.
-function toggleGuideCornerAt(event) {
+function toggleGuideCornerAt(event, found = null) {
   if (
     state.activeTool !== "guide" ||
     !state.imageLoaded ||
@@ -1723,16 +1845,20 @@ function toggleGuideCornerAt(event) {
     lastTapCornerAt = Date.now();
   }
 
-  const found = guidePointAt(canvasPointFromEvent(event), guideReachFor(event));
-  if (found === null) {
+  const target = found ?? guidePointAt(canvasPointFromEvent(event), guideReachFor(event));
+  if (target === null) {
     return;
   }
+
+  // The pair is spent, whichever path turned the corner. A dblclick of the
+  // browser's own arrives after the press that would otherwise be remembered.
+  lastGuidePointPress = null;
 
   // A double click belongs wholly to changing the corner. Its first click must
   // not also continue or connect a line.
   cancelPendingGuidePointClick();
   const before = guideSnapshot();
-  const point = found.path[found.index];
+  const point = target.path[target.index];
   if (point.corner) {
     delete point.corner;
   } else {
@@ -1853,22 +1979,24 @@ function startCanvasPointerGesture(event, captureTarget = elements.canvas) {
     }
 
     let suppressPointClick = false;
-    if (pendingGuidePointClick !== null) {
-      const clickedPoint = guideDrag === null ? null : guideDrag.path[guideDrag.index];
-      if (clickedPoint === pendingGuidePointClick.point) {
-        // This is the second press of a double click. Leave both single-click
-        // actions unused; the following dblclick event changes the corner. A
-        // pencil or a finger may never send one, so for them the release of this
-        // press changes it.
-        cancelPendingGuidePointClick();
-        suppressPointClick = true;
-        cornerOnRelease = event.pointerType === "pen" || event.pointerType === "touch";
-      } else {
-        // A quick click somewhere else is normal drawing, not a double click.
-        // Apply the first point action now so this press sees the right path.
-        performPendingGuidePointClick();
-        guideDrag = guidePointAt(point, guideReachFor(event));
-      }
+    // The second press on a point is a double click whether or not the first one
+    // left an action waiting. While a line is being drawn its own end point has
+    // none, and a pencil used to fall through to drawing another point instead.
+    const pressedAgain = guidePressedAgainAt(point, event, guideDrag);
+    if (pressedAgain !== null) {
+      // Leave both single-click actions unused; the dblclick that follows
+      // changes the corner. A pencil or a finger may never send one, so for them
+      // the release of this press changes it.
+      cancelPendingGuidePointClick();
+      guideDrag = pressedAgain;
+      lastGuidePointPress = null;
+      suppressPointClick = true;
+      cornerOnRelease = event.pointerType === "pen" || event.pointerType === "touch";
+    } else if (pendingGuidePointClick !== null) {
+      // A quick click somewhere else is normal drawing, not a double click.
+      // Apply the first point action now so this press sees the right path.
+      performPendingGuidePointClick();
+      guideDrag = guidePointAt(point, guideReachFor(event));
     }
 
     if (guideDrag === null) {
@@ -1941,6 +2069,8 @@ function cancelCanvasPointerGesture(event) {
     return;
   }
 
+  // Nothing about a cancelled press can be the first half of a double tap.
+  lastGuidePointPress = null;
   const { captureTarget } = canvasPointerGesture;
   canvasPointerGesture = null;
   // Only letting go says what a press did to the line. A press cut short, by a
@@ -2012,12 +2142,26 @@ function finishCanvasPointerGesture(event) {
     const actionTarget = !clickedExistingPoint || gesture.guidePointAction === null
       ? null
       : { path: guideDrag.path, index: guideDrag.index };
+    // Kept before the drag ends, so the corner turns on the point this press
+    // held even when the release lands a little off it.
+    const cornerTarget = guideDrag === null ? null : { path: guideDrag.path, index: guideDrag.index };
+    // Only a press that took hold of a point already on the line, and let go of
+    // it where it was, can be the first half of a double tap. A drag is a move,
+    // and the press that turns the corner closes the pair.
+    lastGuidePointPress = clickedExistingPoint && !gesture.cornerOnRelease
+      ? {
+        path: guideDrag.path,
+        index: guideDrag.index,
+        point: guideDrag.path[guideDrag.index],
+        at: Date.now(),
+      }
+      : null;
     endGuideDrag();
     if (actionTarget !== null) {
       scheduleGuidePointClick(actionTarget, gesture.guidePointAction);
     }
     if (gesture.cornerOnRelease && !movedTooFar) {
-      toggleGuideCornerAt(event);
+      toggleGuideCornerAt(event, cornerTarget);
     }
     return;
   }
@@ -2300,7 +2444,7 @@ function openFilePicker() {
 }
 
 for (const button of elements.toolButtons) {
-  button.addEventListener("click", () => setTool(button.dataset.tool));
+  button.addEventListener("click", () => chooseTool(button.dataset.tool));
   // Within the group, an arrow key moves to the next tool and takes it up. The
   // key is stopped here: left to carry on, it would reach the sidebar's own
   // arrow keys and step the paint colour somewhere the user is not looking.
@@ -2315,15 +2459,34 @@ for (const button of elements.toolButtons) {
     const step = key === "arrowleft" || key === "arrowup" ? -1 : 1;
     const tools = elements.toolButtons;
     const next = tools[(tools.indexOf(button) + step + tools.length) % tools.length];
-    setTool(next.dataset.tool);
+    // Before a picture the keys walk along the tools without taking any of them
+    // up: there is nothing yet for a tool to work on.
+    if (state.imageLoaded) {
+      setTool(next.dataset.tool);
+    } else {
+      setToolTabStop(next.dataset.tool);
+    }
     next.focus();
   });
 }
 
 elements.colorSection.addEventListener("click", (event) => {
   const swatch = event.target.closest(".swatch");
-  if (swatch) {
-    choosePaintColor(swatch.dataset.color);
+  if (!swatch) {
+    return;
+  }
+
+  choosePaintColor(swatch.dataset.color);
+});
+
+// The drawing and the space around it are the largest thing on the screen
+// before a picture, so they lead in as well. The button inside opens the
+// chooser on its own.
+elements.emptyState.addEventListener("click", (event) => {
+  // The button inside opens a picture on its own; everything around it answers
+  // the touch and points at the button rather than opening anything.
+  if (event.target.closest?.("#emptyOpenButton") == null) {
+    rememberStart({ tool: null });
   }
 });
 
@@ -2780,11 +2943,11 @@ window.addEventListener("keydown", (event) => {
   }
 
   if (key === "e") {
-    setTool("eraser");
+    chooseTool("eraser");
   } else if (key === "b") {
-    setTool("bucket");
+    chooseTool("bucket");
   } else if (key === "g") {
-    setTool("guide");
+    chooseTool("guide");
   } else if (key === "0") {
     fitImageToViewport();
   } else if (key === "+" || key === "=") {
