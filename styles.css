@@ -58,12 +58,6 @@ body {
   color: var(--ink);
 }
 
-/* iOS enlarges text in some layouts unless told not to. It would take the
-   swatches with it, which are sized from their own line box. */
-html {
-  -webkit-text-size-adjust: 100%;
-}
-
 button,
 input {
   font: inherit;
@@ -853,13 +847,12 @@ input:focus-visible {
   width: 100%;
   max-width: 25px;
   aspect-ratio: 1;
-  /* A grid item may not shrink below its own content by default, and an empty
-     button still carries a line box. In WebKit that height turns into a least
-     width through the aspect ratio, and the swatches spill over their columns
-     and overlap. Nothing here has content, so none of it is needed. */
-  min-width: 0;
-  min-height: 0;
-  line-height: 0;
+  /* A button carries the browser's own padding until it is told otherwise, and
+     iOS Safari's is 15px on each side. A border-box element cannot be narrower
+     than its padding and border, so each swatch sat 33px wide in a 19px column
+     and lay over the one beside it: measured on an iPad, -10.8px between them.
+     Chrome pads a button by 6px, which fits, which is why it never showed. */
+  padding: 0;
   justify-self: center;
   border: 1.5px solid var(--surface);
   border-radius: 7px;
