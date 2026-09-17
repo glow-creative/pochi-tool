@@ -2780,6 +2780,18 @@ function fillContiguousRegion(
   const fillsEveryNonInkColour =
     wholePicture && toleranceDistanceSquared(tolerance) >= MAX_RGB_DISTANCE_SQUARED;
   const seedOffset = (firstPixel === -1 ? seedIndex(imageData, x, y) : firstPixel) * 4;
+  // Whether the area asked for has already been painted since the line was
+  // drawn. A first fill finds the paper the line was drawn over, and that is
+  // what its share of a pixel on the line gives up. One that comes back to an
+  // area it painted before finds that colour there instead, and gives up that.
+  // Asking at the seed answers it for the whole area: a pixel on the line
+  // cannot be asked, since two fills can leave one holding the colour the paper
+  // had.
+  const repaintingPaintedArea = barrier !== null && barrier.paper !== null && (
+    barrier.paper[seedOffset] !== imageData.data[seedOffset]
+    || barrier.paper[seedOffset + 1] !== imageData.data[seedOffset + 1]
+    || barrier.paper[seedOffset + 2] !== imageData.data[seedOffset + 2]
+  );
   const seedDiffersFromFill =
     imageData.data[seedOffset] !== normalizedColor.r ||
     imageData.data[seedOffset + 1] !== normalizedColor.g ||
@@ -3220,13 +3232,22 @@ function fillContiguousRegion(
       // survived in the seam, in a colour belonging to neither fill and
       // depending on which side was painted first.
       //
-      // What the share gives up is the colour this fill was told to replace,
-      // whether that is the paper it started as or a colour an earlier fill put
-      // there. Reading the pixel itself cannot tell the two apart: two fills can
-      // leave a seam that lands back on the colour the paper had.
-      result.data[offset] = clampChannel(sourceRed + coverage * (normalizedColor.r - target.red));
-      result.data[offset + 1] = clampChannel(sourceGreen + coverage * (normalizedColor.g - target.green));
-      result.data[offset + 2] = clampChannel(sourceBlue + coverage * (normalizedColor.b - target.blue));
+      // What the share gives up is this pixel's own paper, unless the area was
+      // painted before, in which case it gives up the colour being replaced.
+      // The pixel's own paper is what matters where a line runs over more than
+      // one colour: the point of a narrow wedge is nearly all pixels the line
+      // runs through, and measuring their share against the colour clicked on
+      // far away drove them away from the fill instead of towards it.
+      const knownPaper = wall !== null && wall.paper !== null;
+      const replacedRed = !knownPaper ? sourceRed
+        : repaintingPaintedArea ? target.red : wall.paper[offset];
+      const replacedGreen = !knownPaper ? sourceGreen
+        : repaintingPaintedArea ? target.green : wall.paper[offset + 1];
+      const replacedBlue = !knownPaper ? sourceBlue
+        : repaintingPaintedArea ? target.blue : wall.paper[offset + 2];
+      result.data[offset] = clampChannel(sourceRed + coverage * (normalizedColor.r - replacedRed));
+      result.data[offset + 1] = clampChannel(sourceGreen + coverage * (normalizedColor.g - replacedGreen));
+      result.data[offset + 2] = clampChannel(sourceBlue + coverage * (normalizedColor.b - replacedBlue));
     } else if (!normalizedColor.hasExplicitAlpha && !fillingTransparency) {
       result.data[offset] = clampChannel(sourceRed * (1 - coverage) + normalizedColor.r * coverage);
       result.data[offset + 1] = clampChannel(sourceGreen * (1 - coverage) + normalizedColor.g * coverage);
