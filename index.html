@@ -9,7 +9,7 @@
     />
     <title>ポチツール</title>
     <link rel="icon" href="pochi-logo.png" />
-    <link rel="stylesheet" href="styles.css?v=20260917-swatch-padding" />
+    <link rel="stylesheet" href="styles.css?v=20260917-corner-button" />
   </head>
   <body>
     <div class="app-shell">
@@ -66,6 +66,7 @@
               <span class="tool-speech-copy" id="toolSpeechText" aria-live="polite">透過できます</span>
               <div class="guide-actions is-hidden" id="guideActions" aria-label="区切り線の操作">
                 <button class="guide-action" id="newGuideButton" type="button" title="現在の線を終えて、別の位置から新しい線を描きます">＋ 新しい線</button>
+                <button class="guide-action" id="cornerPointButton" type="button" aria-pressed="false" aria-label="点を角にする・丸に戻す" title="次にクリックした点を、角と丸で切り替えます。自動で線を描く状態に戻ります">角</button>
                 <button class="guide-action" id="erasePointButton" type="button" aria-pressed="false" title="次にクリックした点を1点だけ消し、自動で線を描く状態に戻ります">1点消す</button>
                 <button class="guide-action" id="clearGuidesButton" type="button" aria-label="区切り線をすべて消す" title="区切り線をすべて消します。元に戻すこともできます">すべて消す</button>
               </div>
@@ -203,6 +204,6 @@
     </div>
 
     <script src="image-ops.js"></script>
-    <script src="app.js?v=20260916-start-state"></script>
+    <script src="app.js?v=20260917-corner-button"></script>
   </body>
 </html>

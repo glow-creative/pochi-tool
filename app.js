@@ -32,6 +32,9 @@ const GUIDE_DOUBLE_TAP_REACH = 14;
 // How long the button that opens a picture stays marked after a touch lands
 // somewhere that needs one.
 const NUDGE_TIME = 2000;
+// Two taps closer together than this are a double tap to iPadOS, which zooms
+// the page on them.
+const DOUBLE_TAP_ZOOM_WAIT = 600;
 const GUIDE_TOUCH_ERASE_REACH = 28;
 const RECENT_COLOR_LIMIT = 13;
 const ARROW_KEYS = new Set(["arrowleft", "arrowright", "arrowup", "arrowdown"]);
@@ -134,6 +137,7 @@ const elements = {
   emptyIllustration: document.querySelector(".empty-illustration"),
   emptyOpenButton: document.querySelector("#emptyOpenButton"),
   emptyState: document.querySelector("#emptyState"),
+  cornerPointButton: document.querySelector("#cornerPointButton"),
   erasePointButton: document.querySelector("#erasePointButton"),
   exportButton: document.querySelector("#exportButton"),
   fileInput: document.querySelector("#fileInput"),
@@ -195,6 +199,7 @@ let guidePaths = [];
 let activeGuidePath = null;
 let activeGuidePathIsNew = false;
 let erasingGuidePointOnce = false;
+let turningGuideCornerOnce = false;
 let guideDrag = null;
 let hoveredGuidePoint = null;
 let pendingGuidePointClick = null;
@@ -459,7 +464,9 @@ function updateGuideActions() {
     : visible
       ? erasingGuidePointOnce
         ? `消したい点を${CLICK_WORD}`
-        : "消しゴムもバケツも、この線で止められます"
+        : turningGuideCornerOnce
+          ? `角にしたい点を${CLICK_WORD}`
+          : "消しゴムもバケツも、この線で止められます"
       : TOOL_SPEECH[state.activeTool];
 }
 
@@ -522,8 +529,26 @@ function applyStartIntent() {
   setTool(intent === null || intent.tool === null ? state.activeTool : intent.tool);
 }
 
+// Asked for, then answered by one press on a point: the same shape as taking a
+// point away. A pencil cannot deliver a double tap — two of its taps measured
+// over a second apart on an iPad, where a double tap has to land inside 350ms.
+function setGuideCornerOnce(on) {
+  turningGuideCornerOnce = Boolean(on && state.activeTool === "guide" && guidePaths.length > 0);
+  if (turningGuideCornerOnce && erasingGuidePointOnce) {
+    setGuideErasing(false);
+  }
+  elements.cornerPointButton.setAttribute("aria-pressed", String(turningGuideCornerOnce));
+  elements.canvas.classList.toggle("is-turning-corner", turningGuideCornerOnce);
+  setHoveredGuidePoint(hoveredGuidePoint);
+  updateGuideActions();
+  paintGuideOverlay();
+}
+
 function setGuideErasing(on) {
   erasingGuidePointOnce = Boolean(on && state.activeTool === "guide" && guidePaths.length > 0);
+  if (erasingGuidePointOnce && turningGuideCornerOnce) {
+    setGuideCornerOnce(false);
+  }
   elements.erasePointButton.setAttribute("aria-pressed", String(erasingGuidePointOnce));
   elements.canvas.classList.toggle("is-erasing-point", erasingGuidePointOnce);
   setHoveredGuidePoint(hoveredGuidePoint);
@@ -1968,7 +1993,18 @@ function startCanvasPointerGesture(event, captureTarget = elements.canvas) {
   let cornerOnRelease = false;
 
   if (state.activeTool === "guide") {
-    guideDrag = guidePointAt(point, guideReachFor(event, erasingGuidePointOnce));
+    guideDrag = guidePointAt(point, guideReachFor(event, erasingGuidePointOnce || turningGuideCornerOnce));
+    // Asked for a corner, this press turns the point it lands on and hands the
+    // line straight back. A press on nothing leaves the question standing.
+    if (turningGuideCornerOnce) {
+      if (guideDrag !== null) {
+        toggleGuideCornerAt(event, { path: guideDrag.path, index: guideDrag.index });
+        setGuideCornerOnce(false);
+      }
+      guideDrag = null;
+      return;
+    }
+
     if (erasingGuidePointOnce) {
       if (guideDrag !== null) {
         removeGuidePoint(guideDrag);
@@ -2588,6 +2624,10 @@ elements.openButton.addEventListener("click", openFilePicker);
 elements.emptyOpenButton.addEventListener("click", openFilePicker);
 elements.fileInput.addEventListener("change", () => loadImageFile(elements.fileInput.files[0]));
 elements.newGuideButton.addEventListener("click", startNewGuide);
+elements.cornerPointButton.addEventListener("click", () => {
+  setGuideCornerOnce(!turningGuideCornerOnce);
+});
+
 elements.erasePointButton.addEventListener("click", () => {
   cancelPendingGuidePointClick();
   if (erasingGuidePointOnce) {
@@ -2622,6 +2662,21 @@ elements.canvasStage.addEventListener("pointerdown", (event) => {
     startCanvasPointerGesture(event, elements.canvasStage);
   }
 });
+// iPadOS zooms the page on a quick second tap wherever the tap lands, however
+// the stylesheet is set: touch-action, none or manipulation alike, was measured
+// on an iPad and stopped nothing. Refusing the tap's own default is what does,
+// and it costs nothing here, where the picture is drawn on from pointer events
+// rather than from the clicks a browser makes out of taps. The sidebar is left
+// alone: a quick second press of a button there is a second press, not a zoom.
+let lastCanvasTapAt = -Infinity;
+elements.canvasStage.addEventListener("touchend", (event) => {
+  const now = Date.now();
+  if (now - lastCanvasTapAt < DOUBLE_TAP_ZOOM_WAIT) {
+    event.preventDefault();
+  }
+  lastCanvasTapAt = now;
+}, { passive: false });
+
 elements.canvasStage.addEventListener("dblclick", (event) => {
   if (event.target === elements.canvasStage) {
     toggleGuideCornerAt(event);
@@ -2934,6 +2989,10 @@ window.addEventListener("keydown", (event) => {
     }
     if (erasingGuidePointOnce) {
       setGuideErasing(false);
+      return;
+    }
+    if (turningGuideCornerOnce) {
+      setGuideCornerOnce(false);
       return;
     }
     if (!finishGuidePath()) {

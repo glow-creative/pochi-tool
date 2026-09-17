@@ -1197,7 +1197,9 @@ input:focus-visible {
 .guide-actions {
   display: grid;
   width: 100%;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  /* Four buttons of different lengths: equal columns would break the longest
+     two over a second line, so each takes the room its own words need. */
+  grid-template-columns: repeat(4, auto);
   gap: 5px;
 }
 
@@ -1252,8 +1254,12 @@ input:focus-visible {
 #editorCanvas.can-continue-guide,
 #editorCanvas.can-connect-guide { cursor: crosshair; }
 
-#editorCanvas.is-erasing-point { cursor: default; }
-#editorCanvas.is-erasing-point.is-over-point { cursor: pointer; }
+/* While one point is being waited for, the cursor stops offering to draw and
+   only turns to a hand over the points themselves. */
+#editorCanvas.is-erasing-point,
+#editorCanvas.is-turning-corner { cursor: default; }
+#editorCanvas.is-erasing-point.is-over-point,
+#editorCanvas.is-turning-corner.is-over-point { cursor: pointer; }
 
 #editorCanvas.is-busy { cursor: progress; }
 
