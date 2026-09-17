@@ -198,8 +198,8 @@ let canvasPointerGesture = null;
 let guidePaths = [];
 let activeGuidePath = null;
 let activeGuidePathIsNew = false;
-let erasingGuidePointOnce = false;
-let turningGuideCornerOnce = false;
+let erasingGuidePoints = false;
+let changingGuideCorners = false;
 let guideDrag = null;
 let hoveredGuidePoint = null;
 let pendingGuidePointClick = null;
@@ -237,7 +237,33 @@ const TOOL_SPEECH = {
 
 // A screen worked by a finger or a pencil is tapped, not clicked, so the words
 // that name the gesture follow the device.
-const CLICK_WORD = window.matchMedia?.("(hover: none) and (pointer: coarse)")?.matches ? "タップ" : "クリック";
+// Tapped, not clicked, where the screen is worked by touch or a pencil. The
+// same answer the button is shown by, asked afresh each time: a pencil may only
+// make itself known once it has been used.
+function clickWord() {
+  return document.body.classList.contains("has-touch") ? "タップ" : "クリック";
+}
+
+// Whether a finger or a pencil can reach this screen at all. The user agent is
+// not asked: an iPad calls itself a Macintosh. A screen that reports a coarse
+// pointer among its own, or any touch points, counts; so does a pencil once one
+// has actually been used, which covers a tablet that answers neither.
+function noteTouchCapable() {
+  if (document.body.classList.contains("has-touch")) {
+    return;
+  }
+
+  document.body.classList.add("has-touch");
+  // The words change with it, and some of them are already on screen.
+  updateGuideActions();
+}
+
+if (
+  window.matchMedia?.("(any-pointer: coarse)")?.matches
+  || globalThis.navigator?.maxTouchPoints > 0
+) {
+  noteTouchCapable();
+}
 
 const SWATCH_TOOLTIP_DELAY = 1000;
 const SWATCH_TOOLTIP_GRACE = 150;
@@ -423,7 +449,7 @@ function setTool(tool) {
     cancelPendingGuidePointClick();
     settleLastEdit();
     finishGuidePath();
-    setGuideErasing(false);
+    setGuidePointMode(null);
     selectedGuidePoint = null;
   }
 
@@ -462,10 +488,10 @@ function updateGuideActions() {
   elements.toolSpeechText.textContent = !state.imageLoaded
     ? startLine()
     : visible
-      ? erasingGuidePointOnce
-        ? `消したい点を${CLICK_WORD}`
-        : turningGuideCornerOnce
-          ? `角にしたい点を${CLICK_WORD}`
+      ? erasingGuidePoints
+        ? "消したい点をタップ"
+        : changingGuideCorners
+          ? "角の形を変えたい点をタップ"
           : "消しゴムもバケツも、この線で止められます"
       : TOOL_SPEECH[state.activeTool];
 }
@@ -529,31 +555,32 @@ function applyStartIntent() {
   setTool(intent === null || intent.tool === null ? state.activeTool : intent.tool);
 }
 
-// Asked for, then answered by one press on a point: the same shape as taking a
-// point away. A pencil cannot deliver a double tap — two of its taps measured
-// over a second apart on an iPad, where a double tap has to land inside 350ms.
-function setGuideCornerOnce(on) {
-  turningGuideCornerOnce = Boolean(on && state.activeTool === "guide" && guidePaths.length > 0);
-  if (turningGuideCornerOnce && erasingGuidePointOnce) {
-    setGuideErasing(false);
-  }
-  elements.cornerPointButton.setAttribute("aria-pressed", String(turningGuideCornerOnce));
-  elements.canvas.classList.toggle("is-turning-corner", turningGuideCornerOnce);
+// The two point-editing buttons share one mode. Only one can be down at a time:
+// a point takes that mode's action, while empty canvas starts a new line and
+// returns to ordinary drawing. A pencil cannot deliver a double tap reliably on
+// an iPad, so the corner mode supplies the same action there.
+function setGuidePointMode(mode) {
+  // Neither mode goes down while there is no point for it to act on: the button
+  // would stand pressed over an empty canvas with nothing to say for itself.
+  const guideHasPoints = state.activeTool === "guide" && guidePaths.length > 0;
+  changingGuideCorners = mode === "corner" && guideHasPoints;
+  erasingGuidePoints = mode === "erase" && guideHasPoints;
+  elements.cornerPointButton.setAttribute("aria-pressed", String(changingGuideCorners));
+  elements.erasePointButton.setAttribute("aria-pressed", String(erasingGuidePoints));
+  elements.canvas.classList.toggle("is-erasing-point", erasingGuidePoints);
+  lastGuidePointPress = null;
+  cancelPendingGuidePointClick();
   setHoveredGuidePoint(hoveredGuidePoint);
   updateGuideActions();
   paintGuideOverlay();
 }
 
+function setGuideCornerMode(on) {
+  setGuidePointMode(on ? "corner" : null);
+}
+
 function setGuideErasing(on) {
-  erasingGuidePointOnce = Boolean(on && state.activeTool === "guide" && guidePaths.length > 0);
-  if (erasingGuidePointOnce && turningGuideCornerOnce) {
-    setGuideCornerOnce(false);
-  }
-  elements.erasePointButton.setAttribute("aria-pressed", String(erasingGuidePointOnce));
-  elements.canvas.classList.toggle("is-erasing-point", erasingGuidePointOnce);
-  setHoveredGuidePoint(hoveredGuidePoint);
-  updateGuideActions();
-  paintGuideOverlay();
+  setGuidePointMode(on ? "erase" : null);
 }
 
 function setStatus(message, options) {
@@ -1305,8 +1332,10 @@ function resetGuides() {
   guidePaths = [];
   activeGuidePath = null;
   activeGuidePathIsNew = false;
-  erasingGuidePointOnce = false;
+  erasingGuidePoints = false;
+  changingGuideCorners = false;
   elements.erasePointButton.setAttribute("aria-pressed", "false");
+  elements.cornerPointButton.setAttribute("aria-pressed", "false");
   elements.canvas.classList.remove("is-erasing-point");
   guideDrag = null;
   selectedGuidePoint = null;
@@ -1344,9 +1373,13 @@ function restoreGuides(paths) {
   guidePaths = copyGuidePaths(paths);
   activeGuidePath = null;
   activeGuidePathIsNew = false;
-  erasingGuidePointOnce = false;
-  elements.erasePointButton.setAttribute("aria-pressed", "false");
-  elements.canvas.classList.remove("is-erasing-point");
+  if (guidePaths.length === 0) {
+    erasingGuidePoints = false;
+    changingGuideCorners = false;
+    elements.erasePointButton.setAttribute("aria-pressed", "false");
+    elements.cornerPointButton.setAttribute("aria-pressed", "false");
+    elements.canvas.classList.remove("is-erasing-point");
+  }
   guideDrag = null;
   selectedGuidePoint = null;
   setHoveredGuidePoint(null);
@@ -1376,8 +1409,31 @@ function curvePointBetween(before, from, to, after, ratio) {
   );
 }
 
-// The two ends have no neighbour to lean on, so they lean on themselves: the
-// curve leaves the first point and reaches the last one straight. A corner is
+// A line stops at a point, but the point can be held elsewhere too: by another
+// line joined to it, or by this line where it came back round to it. What sits
+// beside it there is the neighbour this line has on its far side. Without one a
+// line leans on itself at the end and draws the chord, so a point two lines met
+// at would be told to curve and keep drawing the same sharp corner.
+function pointBeyond(point, inward) {
+  for (const path of guidePaths) {
+    for (let index = 0; index < path.length; index += 1) {
+      if (path[index] !== point) {
+        continue;
+      }
+      // Onward first, so a loop is followed the way it was drawn.
+      for (const beside of [path[index + 1], path[index - 1]]) {
+        if (beside !== undefined && beside !== point && beside !== inward) {
+          return beside;
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
+// An end with nothing beyond it has no neighbour to lean on, so it leans on
+// itself: the curve leaves the first point and reaches the last one straight,
+// and the point can be told to curve without the line moving. A corner is
 // told to do the same in the middle of a line: with nothing reaching across it,
 // the curve arrives and leaves along the chords, and the bend is as sharp as
 // the two chords make it.
@@ -1392,7 +1448,19 @@ function guidePolyline(points) {
 
   const count = points.length;
   const ring = points.closed === true;
-  const neighbour = (index, alone) => (ring ? points[(index + count) % count] : points[index] ?? alone);
+  const neighbour = (index, alone) => {
+    if (ring) {
+      return points[(index + count) % count];
+    }
+    if (points[index] !== undefined) {
+      return points[index];
+    }
+    // Off the end of the line. The point there may be held elsewhere all the
+    // same, and what is beside it there is the neighbour this line has on its
+    // far side.
+    const end = index < 0 ? 0 : count - 1;
+    return pointBeyond(points[end], points[index < 0 ? 1 : count - 2]) ?? alone;
+  };
 
   const line = [points[0]];
   for (let index = 0; index < (ring ? count : count - 1); index += 1) {
@@ -1507,7 +1575,7 @@ function paintGuideOverlay() {
         const chosen = selectedGuidePoint !== null
           && selectedGuidePoint.path === path
           && selectedGuidePoint.index === index;
-        const ink = live && erasingGuidePointOnce
+        const ink = live && erasingGuidePoints
           ? "rgba(213, 67, 9, 0.95)"
           : "rgba(84, 39, 143, 0.95)";
         const size = live ? radius * 1.2 : radius;
@@ -1611,6 +1679,14 @@ function canContinueGuideFrom(found) {
   return found !== null && activeGuidePath === null;
 }
 
+// The two points an unfinished line stops at. Pressing one picks the line up
+// there; a point along it starts a new line branching off instead.
+function isGuidePathEnd(found) {
+  return !found.path.closed
+    && found.path.length >= 2
+    && (found.index === 0 || found.index === found.path.length - 1);
+}
+
 function canConnectGuideTo(found) {
   return found !== null
     && activeGuidePath !== null
@@ -1697,10 +1773,28 @@ function connectGuideTo(found) {
     guidePaths.push(activeGuidePath);
     activeGuidePathIsNew = false;
   }
-  // Both paths hold the same point object, so dragging the joined point later
-  // keeps the connection intact instead of pulling one line away from it.
-  activeGuidePath.push(found.path[found.index]);
-  selectedGuidePoint = { path: activeGuidePath, index: activeGuidePath.length - 1 };
+  const joined = found.path[found.index];
+  // Two lines that meet end to end are one line. Left as two, the point they
+  // meet at is the end of both, and an end has no neighbour on its far side to
+  // lean on: it would draw the same sharp bend however it was told to curve.
+  // Made into one line, it is a point in the middle like any other.
+  const meetsEndToEnd = found.path !== activeGuidePath
+    && !found.path.closed
+    && (found.index === 0 || found.index === found.path.length - 1);
+  if (meetsEndToEnd) {
+    const rest = found.index === 0
+      ? found.path.slice(1)
+      : found.path.slice(0, -1).reverse();
+    activeGuidePath.push(joined, ...rest);
+    guidePaths.splice(guidePaths.indexOf(found.path), 1);
+    selectedGuidePoint = { path: activeGuidePath, index: activeGuidePath.indexOf(joined) };
+  } else {
+    // A line joined partway along another one stays a line of its own. Both
+    // hold the same point object, so dragging the point they meet at keeps the
+    // join intact instead of pulling one line away from it.
+    activeGuidePath.push(joined);
+    selectedGuidePoint = { path: activeGuidePath, index: activeGuidePath.length - 1 };
+  }
   activeGuidePath = null;
   activeGuidePathIsNew = false;
   setHoveredGuidePoint(null);
@@ -1715,9 +1809,7 @@ function continueGuideFrom(found) {
     return false;
   }
 
-  const isOpenEnd = !found.path.closed
-    && found.path.length >= 2
-    && (found.index === 0 || found.index === found.path.length - 1);
+  const isOpenEnd = isGuidePathEnd(found);
   if (isOpenEnd && found.index === 0) {
     found.path.reverse();
   }
@@ -1745,11 +1837,11 @@ function setHoveredGuidePoint(found) {
     : found !== null && found.path === before.path && found.index === before.index;
   elements.canvas.classList.toggle(
     "can-continue-guide",
-    !erasingGuidePointOnce && canContinueGuideFrom(found),
+    !erasingGuidePoints && !changingGuideCorners && canContinueGuideFrom(found),
   );
   elements.canvas.classList.toggle(
     "can-connect-guide",
-    !erasingGuidePointOnce && canConnectGuideTo(found),
+    !erasingGuidePoints && !changingGuideCorners && canConnectGuideTo(found),
   );
   if (same) {
     return;
@@ -1770,7 +1862,7 @@ function trackGuideHover(event) {
   if (guideDrag === null) {
     setHoveredGuidePoint(guidePointAt(
       canvasPointFromEvent(event),
-      erasingGuidePointOnce ? GUIDE_ERASE_REACH : GUIDE_GRAB_REACH,
+      erasingGuidePoints || changingGuideCorners ? GUIDE_ERASE_REACH : GUIDE_GRAB_REACH,
     ));
   }
 }
@@ -1795,7 +1887,10 @@ function addGuidePoint(point) {
     activeGuidePathIsNew = false;
   }
 
-  activeGuidePath.push(point);
+  // A point starts as a corner, so the line runs exactly where the points were
+  // put. A curve between two points bulges past them, and a wall that bulges
+  // stops a fill somewhere other than where it looks like it will.
+  activeGuidePath.push({ ...point, corner: true });
   rebuildGuides();
   return { path: activeGuidePath, index: activeGuidePath.length - 1, placed };
 }
@@ -1847,17 +1942,19 @@ function removeGuidePoint({ path, index }) {
   rebuildGuides();
 }
 
-// Every point is smooth, which is what tracing around a shape mostly wants.
-// Where the shape actually turns, the point is told to stop leaning on its
-// neighbours, instead of crowding more points around it until it looks sharp.
-// A double click asks for it: it lands on a point that is already down, so it
-// costs no gesture of its own and takes nothing from the click that places one.
+// Every point is a corner, so the line runs exactly where the points were put.
+// A point told otherwise leans on its neighbours and curves through, which is
+// what tracing a rounded shape wants. A double click asks for the change: it
+// lands on a point already down, so it costs no gesture of its own and takes
+// nothing from the click that places one. Where a double click cannot be had —
+// a pencil's two taps measured over a second apart — the button in the canvas's
+// own line does the same thing for as long as it is left on.
 function toggleGuideCornerAt(event, found = null) {
   if (
     state.activeTool !== "guide" ||
     !state.imageLoaded ||
     state.isBusy ||
-    erasingGuidePointOnce
+    erasingGuidePoints || changingGuideCorners
   ) {
     return;
   }
@@ -1875,6 +1972,12 @@ function toggleGuideCornerAt(event, found = null) {
     return;
   }
 
+  turnGuideCorner(target);
+}
+
+// The point a press or the button is aimed at, turned from a corner to a smooth
+// point or back.
+function turnGuideCorner(target) {
   // The pair is spent, whichever path turned the corner. A dblclick of the
   // browser's own arrives after the press that would otherwise be remembered.
   lastGuidePointPress = null;
@@ -1891,6 +1994,17 @@ function toggleGuideCornerAt(event, found = null) {
   }
   commitGuideChange(before);
   rebuildGuides();
+}
+
+// The point the last press left chosen, if it is still on a line. Delete works
+// on it, and so does the button that changes a corner.
+function chosenGuidePoint() {
+  const chosen = selectedGuidePoint;
+  return chosen !== null
+    && guidePaths.includes(chosen.path)
+    && chosen.index < chosen.path.length
+    ? chosen
+    : null;
 }
 
 // A line that comes back to where it started is the one shape a fill cannot
@@ -1940,13 +2054,14 @@ function finishGuidePath() {
 }
 
 function startNewGuide() {
-  cancelPendingGuidePointClick();
-  setGuideErasing(false);
+  // Asking for a new line is asking to draw, so either point mode steps aside
+  // and the line above the tools says so again.
+  setGuidePointMode(null);
   finishGuidePath();
   selectedGuidePoint = null;
   setHoveredGuidePoint(null);
   updateGuideActions();
-  setStatus(`キャンバスを${CLICK_WORD}して、新しい区切り線を始められます`);
+  setStatus(`キャンバスを${clickWord()}して、新しい区切り線を始められます`);
 }
 
 function clearGuides() {
@@ -1979,6 +2094,10 @@ function releaseCanvasPointerCapture(pointerId, captureTarget = elements.canvas)
 }
 
 function startCanvasPointerGesture(event, captureTarget = elements.canvas) {
+  if (event.pointerType === "pen" || event.pointerType === "touch") {
+    noteTouchCapable();
+  }
+
   if (
     event.button !== 0 ||
     !state.imageLoaded ||
@@ -1990,55 +2109,52 @@ function startCanvasPointerGesture(event, captureTarget = elements.canvas) {
 
   const point = canvasPointFromEvent(event);
   let guidePointAction = null;
+  let guidePointModeAction = null;
   let cornerOnRelease = false;
 
   if (state.activeTool === "guide") {
-    guideDrag = guidePointAt(point, guideReachFor(event, erasingGuidePointOnce || turningGuideCornerOnce));
-    // Asked for a corner, this press turns the point it lands on and hands the
-    // line straight back. A press on nothing leaves the question standing.
-    if (turningGuideCornerOnce) {
-      if (guideDrag !== null) {
-        toggleGuideCornerAt(event, { path: guideDrag.path, index: guideDrag.index });
-        setGuideCornerOnce(false);
-      }
-      guideDrag = null;
-      return;
-    }
-
-    if (erasingGuidePointOnce) {
-      if (guideDrag !== null) {
-        removeGuidePoint(guideDrag);
-        setGuideErasing(false);
-      }
-      guideDrag = null;
-      return;
-    }
+    const pointMode = erasingGuidePoints ? "erase" : changingGuideCorners ? "corner" : null;
+    guideDrag = guidePointAt(point, guideReachFor(event, pointMode !== null));
 
     let suppressPointClick = false;
-    // The second press on a point is a double click whether or not the first one
-    // left an action waiting. While a line is being drawn its own end point has
-    // none, and a pencil used to fall through to drawing another point instead.
-    const pressedAgain = guidePressedAgainAt(point, event, guideDrag);
-    if (pressedAgain !== null) {
-      // Leave both single-click actions unused; the dblclick that follows
-      // changes the corner. A pencil or a finger may never send one, so for them
-      // the release of this press changes it.
+    if (pointMode !== null && guideDrag !== null) {
+      // Both point modes take a point in the same way. The action waits for the
+      // release, so a press that travels remains a drag instead.
       cancelPendingGuidePointClick();
-      guideDrag = pressedAgain;
       lastGuidePointPress = null;
       suppressPointClick = true;
-      cornerOnRelease = event.pointerType === "pen" || event.pointerType === "touch";
-    } else if (pendingGuidePointClick !== null) {
-      // A quick click somewhere else is normal drawing, not a double click.
-      // Apply the first point action now so this press sees the right path.
-      performPendingGuidePointClick();
-      guideDrag = guidePointAt(point, guideReachFor(event));
+      guidePointModeAction = pointMode;
+    } else {
+      // The second press on a point is a double click whether or not the first
+      // one left an action waiting. While a line is being drawn its own end
+      // point has none, and a pencil used to fall through to another point.
+      const pressedAgain = guidePressedAgainAt(point, event, guideDrag);
+      if (pressedAgain !== null) {
+        // Leave both single-click actions unused; the dblclick that follows
+        // changes the corner. A pencil or a finger may never send one, so for
+        // them the release of this press changes it.
+        cancelPendingGuidePointClick();
+        guideDrag = pressedAgain;
+        lastGuidePointPress = null;
+        suppressPointClick = true;
+        cornerOnRelease = event.pointerType === "pen" || event.pointerType === "touch";
+      } else if (pendingGuidePointClick !== null) {
+        // A quick click somewhere else is normal drawing, not a double click.
+        // Apply the first point action now so this press sees the right path.
+        performPendingGuidePointClick();
+        guideDrag = guidePointAt(point, guideReachFor(event));
+      }
     }
 
     if (guideDrag === null) {
-      // Nothing to grab here, so this press puts a point down and the line is
-      // drawn at once. The press keeps hold of it: sliding before letting go
-      // places it, and that is still the one step the point cost.
+      // Empty canvas returns either point mode to drawing. The line in hand is
+      // finished first, so this press is the first point of a new line.
+      if (pointMode !== null) {
+        finishGuidePath();
+        setGuidePointMode(null);
+      }
+      // The press keeps hold of the new point: sliding before letting go places
+      // it, and that is still the one step the point cost.
       guideDrag = addGuidePoint(point);
       guideDrag.origin = { ...point };
       setHoveredGuidePoint(guideDrag);
@@ -2061,6 +2177,7 @@ function startCanvasPointerGesture(event, captureTarget = elements.canvas) {
     point,
     drawingGuide: state.activeTool === "guide",
     guidePointAction,
+    guidePointModeAction,
     cornerOnRelease,
     startX: event.clientX,
     startY: event.clientY,
@@ -2136,6 +2253,9 @@ function endGuideDrag() {
   // A point this press put down takes its one step now, however far it slid.
   if (guideDrag.placed !== undefined) {
     commitGuideChange(guideDrag.placed.before);
+    // Putting a point down on empty canvas starts ordinary drawing, so either
+    // point mode is up by the time the point lands.
+    setGuidePointMode(null);
   } else if (guideDrag.before !== undefined && shifted) {
     commitGuideChange(guideDrag.before);
   }
@@ -2184,7 +2304,9 @@ function finishCanvasPointerGesture(event) {
     // Only a press that took hold of a point already on the line, and let go of
     // it where it was, can be the first half of a double tap. A drag is a move,
     // and the press that turns the corner closes the pair.
-    lastGuidePointPress = clickedExistingPoint && !gesture.cornerOnRelease
+    lastGuidePointPress = clickedExistingPoint
+      && gesture.guidePointModeAction === null
+      && !gesture.cornerOnRelease
       ? {
         path: guideDrag.path,
         index: guideDrag.index,
@@ -2196,7 +2318,14 @@ function finishCanvasPointerGesture(event) {
     if (actionTarget !== null) {
       scheduleGuidePointClick(actionTarget, gesture.guidePointAction);
     }
-    if (gesture.cornerOnRelease && !movedTooFar) {
+    if (!movedTooFar && gesture.guidePointModeAction === "corner") {
+      turnGuideCorner(cornerTarget);
+    } else if (!movedTooFar && gesture.guidePointModeAction === "erase") {
+      removeGuidePoint(cornerTarget);
+      if (guidePaths.length === 0) {
+        setGuidePointMode(null);
+      }
+    } else if (gesture.cornerOnRelease && !movedTooFar) {
       toggleGuideCornerAt(event, cornerTarget);
     }
     return;
@@ -2624,22 +2753,36 @@ elements.openButton.addEventListener("click", openFilePicker);
 elements.emptyOpenButton.addEventListener("click", openFilePicker);
 elements.fileInput.addEventListener("change", () => loadImageFile(elements.fileInput.files[0]));
 elements.newGuideButton.addEventListener("click", startNewGuide);
+// Both point buttons act on the chosen point at once, then stay down for the
+// points pressed after it. Pressing the same button again puts it up; pressing
+// the other switches modes.
 elements.cornerPointButton.addEventListener("click", () => {
-  setGuideCornerOnce(!turningGuideCornerOnce);
-});
-
-elements.erasePointButton.addEventListener("click", () => {
-  cancelPendingGuidePointClick();
-  if (erasingGuidePointOnce) {
-    setGuideErasing(false);
+  if (changingGuideCorners) {
+    setGuidePointMode(null);
     return;
   }
 
-  finishGuidePath();
-  selectedGuidePoint = null;
-  setHoveredGuidePoint(null);
-  // The speech bubble already asks for the point, so no toast says it twice.
-  setGuideErasing(true);
+  const chosen = chosenGuidePoint();
+  setGuidePointMode("corner");
+  if (chosen !== null && !state.isBusy) {
+    turnGuideCorner(chosen);
+  }
+});
+
+elements.erasePointButton.addEventListener("click", () => {
+  if (erasingGuidePoints) {
+    setGuidePointMode(null);
+    return;
+  }
+
+  const chosen = chosenGuidePoint();
+  setGuidePointMode("erase");
+  if (chosen !== null && !state.isBusy) {
+    removeGuidePoint(chosen);
+    if (guidePaths.length === 0) {
+      setGuidePointMode(null);
+    }
+  }
 });
 elements.clearGuidesButton.addEventListener("click", clearGuides);
 elements.undoButton.addEventListener("click", undo);
@@ -2987,12 +3130,8 @@ window.addEventListener("keydown", (event) => {
       cancelPendingGuidePointClick();
       return;
     }
-    if (erasingGuidePointOnce) {
-      setGuideErasing(false);
-      return;
-    }
-    if (turningGuideCornerOnce) {
-      setGuideCornerOnce(false);
+    if (erasingGuidePoints || changingGuideCorners) {
+      setGuidePointMode(null);
       return;
     }
     if (!finishGuidePath()) {

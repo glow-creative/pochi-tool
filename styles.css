@@ -436,6 +436,7 @@ input:focus-visible {
   color: var(--guide-text);
   font-size: 11px;
   line-height: 1.35;
+  white-space: nowrap;
 }
 
 /* Centred under each of the three equal tool columns, with 4px outer padding
@@ -972,12 +973,51 @@ input:focus-visible {
    it breaks between hints, never inside one. */
 .guide-help-short { display: none; }
 
-/* Tapped, not clicked, where the screen is worked by touch or pencil. */
+/* Tapped, not clicked, where the screen is worked by touch or pencil. The class
+   is the same answer the corner button is shown by, so the words and the button
+   never disagree — including on a tablet that only owns up to a pencil once one
+   has been used. */
 .word-touch { display: none; }
 
-@media (hover: none) and (pointer: coarse) {
-  .word-pointer { display: none; }
-  .word-touch { display: inline; }
+body.has-touch .word-pointer { display: none; }
+body.has-touch .word-touch { display: inline; }
+
+/* A pencil cannot manage a double tap — two of its taps measured over a second
+   apart on an iPad — so where the screen can be touched, changing a corner is a
+   button of its own rather than a gesture to get right. It is the ordinary way
+   to do it there, not a way round a failure, so it sits in the line among the
+   other things the tool can do. A mouse double-clicks and is shown that. */
+.guide-help-action { display: none; }
+
+body.has-touch .guide-help-mouse { display: none; }
+
+body.has-touch .guide-help-action {
+  position: relative;
+  display: inline-flex;
+  /* The line clips whatever leaves it, so the finger's room has to be the
+     button's own: taller than the words beside it, but still sitting on their
+     line and clear of the bar's edge, which the line is drawn right up against. */
+  height: 28px;
+  margin-bottom: 4px;
+  align-items: center;
+  /* The same two ideographic spaces that separate the hints, so the button sits
+     in the line at the rhythm the words keep. */
+  margin-left: 22px;
+  border: 1px solid var(--gray-30);
+  border-radius: 6px;
+  background: white;
+  padding: 0 8px;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+body.has-touch .guide-help-action[aria-pressed="true"] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: white;
 }
 
 .guide-help-item {
@@ -1197,9 +1237,7 @@ input:focus-visible {
 .guide-actions {
   display: grid;
   width: 100%;
-  /* Four buttons of different lengths: equal columns would break the longest
-     two over a second line, so each takes the room its own words need. */
-  grid-template-columns: repeat(4, auto);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 5px;
 }
 
@@ -1254,12 +1292,9 @@ input:focus-visible {
 #editorCanvas.can-continue-guide,
 #editorCanvas.can-connect-guide { cursor: crosshair; }
 
-/* While one point is being waited for, the cursor stops offering to draw and
-   only turns to a hand over the points themselves. */
-#editorCanvas.is-erasing-point,
-#editorCanvas.is-turning-corner { cursor: default; }
-#editorCanvas.is-erasing-point.is-over-point,
-#editorCanvas.is-turning-corner.is-over-point { cursor: pointer; }
+/* Either point mode still starts a new line on empty canvas. Over a point, the
+   hand says that the mode's point action will be used instead. */
+#editorCanvas.is-erasing-point.is-over-point { cursor: pointer; }
 
 #editorCanvas.is-busy { cursor: progress; }
 

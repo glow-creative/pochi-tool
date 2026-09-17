@@ -9,7 +9,7 @@
     />
     <title>ポチツール</title>
     <link rel="icon" href="pochi-logo.png" />
-    <link rel="stylesheet" href="styles.css?v=20260917-corner-button" />
+    <link rel="stylesheet" href="styles.css?v=20260917-point-modes-2" />
   </head>
   <body>
     <div class="app-shell">
@@ -66,8 +66,7 @@
               <span class="tool-speech-copy" id="toolSpeechText" aria-live="polite">透過できます</span>
               <div class="guide-actions is-hidden" id="guideActions" aria-label="区切り線の操作">
                 <button class="guide-action" id="newGuideButton" type="button" title="現在の線を終えて、別の位置から新しい線を描きます">＋ 新しい線</button>
-                <button class="guide-action" id="cornerPointButton" type="button" aria-pressed="false" aria-label="点を角にする・丸に戻す" title="次にクリックした点を、角と丸で切り替えます。自動で線を描く状態に戻ります">角</button>
-                <button class="guide-action" id="erasePointButton" type="button" aria-pressed="false" title="次にクリックした点を1点だけ消し、自動で線を描く状態に戻ります">1点消す</button>
+                <button class="guide-action" id="erasePointButton" type="button" aria-pressed="false" title="選択中の点を消し、続けてタップした点も消します。もう一度押すと解除します">1点消す</button>
                 <button class="guide-action" id="clearGuidesButton" type="button" aria-label="区切り線をすべて消す" title="区切り線をすべて消します。元に戻すこともできます">すべて消す</button>
               </div>
             </div>
@@ -150,10 +149,11 @@
                 </button>
               </div>
             </div>
-            <p class="guide-help-line" id="guideHelpText" title="クリックで点を置く・線をつなぐ、ダブルクリックで角にする、ドラッグで点を移動" hidden>
+            <p class="guide-help-line" id="guideHelpText" hidden>
               <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.25" /><path d="M10 8.5v5M10 6.2v.1" /></svg>
-              <span class="guide-help-full"><strong><span class="word-pointer">クリック</span><span class="word-touch">タップ</span></strong>｜点を置く・線をつなぐ　　<strong><span class="word-pointer">ダブルクリック</span><span class="word-touch">ダブルタップ</span></strong>｜角にする　　<strong>ドラッグ</strong>｜点を移動</span>
-              <span class="guide-help-short"><span class="guide-help-item"><strong><span class="word-pointer">クリック</span><span class="word-touch">タップ</span></strong>｜点を置く・つなぐ</span><span class="guide-help-item"><strong><span class="word-pointer">ダブルクリック</span><span class="word-touch">ダブルタップ</span></strong>｜角</span><span class="guide-help-item"><strong>ドラッグ</strong>｜移動</span></span>
+              <span class="guide-help-full"><strong><span class="word-pointer">クリック</span><span class="word-touch">タップ</span></strong>｜点を置く・線をつなぐ　　<span class="guide-help-mouse"><strong>ダブルクリック</strong>｜角の形を変える　　</span><strong>ドラッグ</strong>｜点を移動</span>
+              <span class="guide-help-short"><span class="guide-help-item"><strong><span class="word-pointer">クリック</span><span class="word-touch">タップ</span></strong>｜点を置く・つなぐ</span><span class="guide-help-item guide-help-mouse"><strong>ダブルクリック</strong>｜角の形</span><span class="guide-help-item"><strong>ドラッグ</strong>｜移動</span></span>
+              <button class="guide-help-action" id="cornerPointButton" type="button" aria-pressed="false" aria-label="区切り線の角の形を切り替える" title="選択中の点の角の形を変え、続けてタップした点も切り替えます。もう一度押すと解除します">角の形を変える</button>
             </p>
             <div class="canvas-meta" id="canvasMeta" aria-label="キャンバスサイズ">
               <span class="meta-chip">サイズ</span>
@@ -204,6 +204,6 @@
     </div>
 
     <script src="image-ops.js"></script>
-    <script src="app.js?v=20260917-corner-button"></script>
+    <script src="app.js?v=20260917-point-modes-2"></script>
   </body>
 </html>
