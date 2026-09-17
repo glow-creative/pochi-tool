@@ -3207,6 +3207,26 @@ function fillContiguousRegion(
       result.data[offset + 1] = normalizedColor.g;
       result.data[offset + 2] = normalizedColor.b;
       result.data[offset + 3] = replacementAlpha;
+    } else if (
+      wallCoverage !== -1 &&
+      normalizedColor.a === CHANNEL_MAX &&
+      !fillingTransparency &&
+      sourceAlpha === CHANNEL_MAX
+    ) {
+      // A pixel the line runs through is shared with the fill on the other side
+      // of it, and the two shares are the whole of it. Each side replaces its
+      // own share of the paper rather than painting over whatever the other
+      // side left there: painted one over the other, a quarter of the paper
+      // survived in the seam, in a colour belonging to neither fill and
+      // depending on which side was painted first.
+      //
+      // What the share gives up is the colour this fill was told to replace,
+      // whether that is the paper it started as or a colour an earlier fill put
+      // there. Reading the pixel itself cannot tell the two apart: two fills can
+      // leave a seam that lands back on the colour the paper had.
+      result.data[offset] = clampChannel(sourceRed + coverage * (normalizedColor.r - target.red));
+      result.data[offset + 1] = clampChannel(sourceGreen + coverage * (normalizedColor.g - target.green));
+      result.data[offset + 2] = clampChannel(sourceBlue + coverage * (normalizedColor.b - target.blue));
     } else if (!normalizedColor.hasExplicitAlpha && !fillingTransparency) {
       result.data[offset] = clampChannel(sourceRed * (1 - coverage) + normalizedColor.r * coverage);
       result.data[offset + 1] = clampChannel(sourceGreen * (1 - coverage) + normalizedColor.g * coverage);
