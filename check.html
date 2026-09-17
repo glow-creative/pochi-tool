@@ -6,6 +6,15 @@
 <title>色見本の計測</title>
 <link rel="stylesheet" href="styles.css" />
 <style>
+  html, body {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    position: static !important;
+    touch-action: auto !important;
+    overscroll-behavior: auto !important;
+    display: block !important;
+  }
   body { margin: 0; padding: 16px; background: #fff; font: 15px/1.6 "Hiragino Sans", sans-serif; color: #2e2e2a; }
   h2 { margin: 20px 0 6px; font-size: 16px; }
   pre { margin: 0; padding: 10px; border-radius: 8px; background: #f2f2f0; font: 13px/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap; }
@@ -16,6 +25,13 @@
 </style>
 </head>
 <body>
+<h2>まず、これを試してください：拡大の止め方くらべ</h2>
+<p style="margin:0 0 6px">それぞれの四角を<b>指で2回</b>叩いて、<b>画面が拡大するかどうか</b>を見てください。</p>
+<div id="zoomA" style="display:grid;place-items:center;height:90px;margin-bottom:8px;border:2px solid #888;border-radius:12px;background:#fdd;touch-action:none;font-size:15px">A：touch-action: none（今と同じ）</div>
+<div id="zoomB" style="display:grid;place-items:center;height:90px;margin-bottom:8px;border:2px solid #888;border-radius:12px;background:#dfd;touch-action:none;font-size:15px">B：2回目の指を離す動作を止める</div>
+<div id="zoomC" style="display:grid;place-items:center;height:90px;margin-bottom:8px;border:2px solid #888;border-radius:12px;background:#ddf;touch-action:manipulation;font-size:15px">C：touch-action: manipulation</div>
+<pre id="zoomLog">まだ叩いていません</pre>
+
 <h2>1. 今のCSSのまま</h2>
 <div class="box" id="a"><div class="palette-families"><div class="palette-family palette-family--dads"><div class="palette-swatches" style="--palette-columns: 13"></div></div></div></div>
 
@@ -29,13 +45,6 @@
 <p style="margin:0 0 6px">下の四角を、<b>いつもの調子で2回</b>叩いてください。ペンと指の両方でお願いします。</p>
 <div id="tapper" style="display:grid;place-items:center;height:130px;border:2px dashed #888;border-radius:12px;background:#f7f7f5;touch-action:none;font-size:15px">ここを2回</div>
 <pre id="taps" style="margin-top:6px">まだ計測していません</pre>
-
-<h2>5. 拡大の止め方くらべ</h2>
-<p style="margin:0 0 6px">それぞれの四角を<b>指で2回</b>叩いて、<b>画面が拡大するかどうか</b>を見てください。</p>
-<div id="zoomA" style="display:grid;place-items:center;height:90px;margin-bottom:8px;border:2px solid #888;border-radius:12px;background:#fdd;touch-action:none;font-size:15px">A：touch-action: none（今と同じ）</div>
-<div id="zoomB" style="display:grid;place-items:center;height:90px;margin-bottom:8px;border:2px solid #888;border-radius:12px;background:#dfd;touch-action:none;font-size:15px">B：2回目の指を離す動作を止める</div>
-<div id="zoomC" style="display:grid;place-items:center;height:90px;margin-bottom:8px;border:2px solid #888;border-radius:12px;background:#ddf;touch-action:manipulation;font-size:15px">C：touch-action: manipulation</div>
-<pre id="zoomLog">まだ叩いていません</pre>
 
 <h2>計測結果</h2>
 <pre id="out">…</pre>
