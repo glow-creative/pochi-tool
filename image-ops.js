@@ -39,6 +39,10 @@ const SPECK_NEIGHBOUR_RATIO = 0.5;
 // Two neighbours this close are a run of one flat colour. The skirt of a stroke
 // is a slope, so its pixels never match the pixel past them.
 const FLAT_RUN_DISTANCE_SQUARED = 3;
+// Gamut clipping can make a tiny, unrelated third colour fit a two-colour
+// seam. It must own at least this much of the pixel before that more complex
+// explanation may displace an equally accurate, simpler one.
+const MIN_MEANINGFUL_MIXTURE_SHARE = 0.04;
 // How far the fill may reach across paper the range stopped at, to get to the
 // stroke behind it. A rim left by grain is a pixel or two wide; a neighbouring
 // face is not, so a short reach tells them apart.
@@ -491,11 +495,145 @@ function channelFromLinearLight(channel) {
   return clampChannel(encoded * CHANNEL_MAX);
 }
 
-function replaceLinearLightShare(source, replacement, fill, share) {
-  return channelFromLinearLight(
-    channelToLinearLight(source) +
-    share * (channelToLinearLight(fill) - channelToLinearLight(replacement)),
+function rgbToOklab(red, green, blue) {
+  const linearRed = channelToLinearLight(red);
+  const linearGreen = channelToLinearLight(green);
+  const linearBlue = channelToLinearLight(blue);
+  const long = Math.cbrt(
+    0.4122214708 * linearRed +
+    0.5363325363 * linearGreen +
+    0.0514459929 * linearBlue,
   );
+  const medium = Math.cbrt(
+    0.2119034982 * linearRed +
+    0.6806995451 * linearGreen +
+    0.1073969566 * linearBlue,
+  );
+  const short = Math.cbrt(
+    0.0883024619 * linearRed +
+    0.2817188376 * linearGreen +
+    0.6299787005 * linearBlue,
+  );
+  return [
+    0.2104542553 * long + 0.793617785 * medium - 0.0040720468 * short,
+    1.9779984951 * long - 2.428592205 * medium + 0.4505937099 * short,
+    0.0259040371 * long + 0.7827717662 * medium - 0.808675766 * short,
+  ];
+}
+
+function oklabToRgb(lightness, greenRed, blueYellow) {
+  const longRoot = lightness + 0.3963377774 * greenRed + 0.2158037573 * blueYellow;
+  const mediumRoot = lightness - 0.1055613458 * greenRed - 0.0638541728 * blueYellow;
+  const shortRoot = lightness - 0.0894841775 * greenRed - 1.291485548 * blueYellow;
+  const long = longRoot ** 3;
+  const medium = mediumRoot ** 3;
+  const short = shortRoot ** 3;
+  return [
+    channelFromLinearLight(4.0767416621 * long - 3.3077115913 * medium + 0.2309699292 * short),
+    channelFromLinearLight(-1.2684380046 * long + 2.6097574011 * medium - 0.3413193965 * short),
+    channelFromLinearLight(-0.0041960863 * long - 0.7034186147 * medium + 1.707614701 * short),
+  ];
+}
+
+function replaceOklabShare(source, replacement, fill, share) {
+  const sourceLab = rgbToOklab(...source);
+  const replacementLab = rgbToOklab(...replacement);
+  const fillLab = rgbToOklab(...fill);
+  return oklabToRgb(...sourceLab.map(
+    (level, channel) => level + share * (fillLab[channel] - replacementLab[channel]),
+  ));
+}
+
+function replaceSolvedOklabShare(solved, replacement, fill) {
+  const replacementLab = rgbToOklab(...replacement);
+  const fillLab = rgbToOklab(...fill);
+  return oklabToRgb(...solved.channels.map(
+    (level, channel) => level + solved.share * (fillLab[channel] - replacementLab[channel]),
+  ));
+}
+
+function projectMixtureWeights(weights) {
+  const ordered = [...weights].sort((first, second) => second - first);
+  let total = 0;
+  let lastPositive = 0;
+  for (let index = 0; index < ordered.length; index += 1) {
+    total += ordered[index];
+    if (ordered[index] - (total - 1) / (index + 1) > 0) {
+      lastPositive = index;
+    }
+  }
+  const threshold = (
+    ordered.slice(0, lastPositive + 1).reduce((sum, weight) => sum + weight, 0) - 1
+  ) / (lastPositive + 1);
+  return weights.map((weight) => Math.max(0, weight - threshold));
+}
+
+function fittedOklabMixture(source, components, startingWeights) {
+  const sourceLab = rgbToOklab(source.red, source.green, source.blue);
+  const componentLabs = components.map((colour) => (
+    rgbToOklab(colour.red, colour.green, colour.blue)
+  ));
+  const evaluate = (weights) => {
+    const channels = [0, 1, 2].map((channel) => componentLabs.reduce(
+      (sum, colour, index) => sum + weights[index] * colour[channel],
+      0,
+    ));
+    const shownLab = rgbToOklab(...oklabToRgb(...channels));
+    const error = shownLab.reduce(
+      (sum, level, channel) => sum + ((level - sourceLab[channel]) * CHANNEL_MAX) ** 2,
+      0,
+    );
+    return { weights, channels, error };
+  };
+  const starts = [
+    projectMixtureWeights(startingWeights),
+    components.map(() => 1 / components.length),
+    ...components.map((_, chosen) => components.map((__, index) => (
+      index === chosen ? 1 : 0
+    ))),
+  ];
+  let best = null;
+
+  for (const start of starts) {
+    let current = evaluate(start);
+    for (let step = 0.25; step >= 1 / 256; step /= 2) {
+      let improved = true;
+      while (improved) {
+        improved = false;
+        for (let from = 0; from < components.length; from += 1) {
+          if (current.weights[from] + 1e-9 < step) continue;
+          for (let to = 0; to < components.length; to += 1) {
+            if (to === from) continue;
+            const weights = [...current.weights];
+            weights[from] -= step;
+            weights[to] += step;
+            const candidate = evaluate(weights);
+            if (
+              candidate.error < current.error - 1e-6 ||
+              (
+                Math.abs(candidate.error - current.error) <= 1e-6 &&
+                candidate.weights[0] < current.weights[0]
+              )
+            ) {
+              current = candidate;
+              improved = true;
+            }
+          }
+        }
+      }
+    }
+    if (
+      best === null ||
+      current.error < best.error - 1e-6 ||
+      (
+        Math.abs(current.error - best.error) <= 1e-6 &&
+        current.weights[0] < best.weights[0]
+      )
+    ) {
+      best = current;
+    }
+  }
+  return best;
 }
 
 function normalizeColor(color) {
@@ -895,19 +1033,19 @@ function isFlatColourAt(data, width, height, pixelIndex) {
   return matching >= 3;
 }
 
-// Guide seams are composed in linear light. Solve their stored mixtures in the
-// same space; encoded RGB would infer the wrong face share from a bright seam.
+// Guide seams are composed in OKLab. Solve their stored mixtures in the same
+// space; encoded RGB would infer the wrong face share from a perceptual blend.
 function solveMixtureShare(source, target, others) {
   const count = others.length;
-  const targetChannels = [target.red, target.green, target.blue]
-    .map((channel) => channelToLinearLight(channel) * CHANNEL_MAX);
-  const sourceChannels = [source.red, source.green, source.blue]
-    .map((channel) => channelToLinearLight(channel) * CHANNEL_MAX);
-  const vectors = others.map((colour) => [
-    channelToLinearLight(colour.red) * CHANNEL_MAX - targetChannels[0],
-    channelToLinearLight(colour.green) * CHANNEL_MAX - targetChannels[1],
-    channelToLinearLight(colour.blue) * CHANNEL_MAX - targetChannels[2],
-  ]);
+  const targetChannels = rgbToOklab(target.red, target.green, target.blue)
+    .map((channel) => channel * CHANNEL_MAX);
+  const sourceChannels = rgbToOklab(source.red, source.green, source.blue)
+    .map((channel) => channel * CHANNEL_MAX);
+  const vectors = others.map((colour) => {
+    const channels = rgbToOklab(colour.red, colour.green, colour.blue)
+      .map((channel) => channel * CHANNEL_MAX);
+    return channels.map((channel, index) => channel - targetChannels[index]);
+  });
   const delta = sourceChannels.map(
     (level, channel) => level - targetChannels[channel],
   );
@@ -948,20 +1086,19 @@ function solveMixtureShare(source, target, others) {
 
   const weights = equations.map((row) => row[count]);
   const targetWeight = 1 - weights.reduce((sum, weight) => sum + weight, 0);
-  const allWeights = [targetWeight, ...weights];
-  if (allWeights.some((weight) => weight < -0.02 || weight > 1.02)) {
-    return null;
-  }
-  const rebuilt = targetChannels.map((level, channel) => level + vectors.reduce(
-    (sum, vector, index) => sum + weights[index] * vector[channel],
-    0,
-  ));
-  const error = rebuilt.reduce(
-    (sum, level, channel) => sum + (level - sourceChannels[channel]) ** 2,
-    0,
-  );
-  return error <= FLAT_RUN_DISTANCE_SQUARED
-    ? { share: Math.min(1, Math.max(0, targetWeight)), error }
+  // A perceptual blend can briefly leave the sRGB gamut before it is displayed.
+  // Once a channel is clipped, solving only the displayed OKLab value can give
+  // the wrong face the missing share. Fit the forward, clipped result instead;
+  // among equally good fits prefer less of the clicked face so a neighbouring
+  // seam is never eaten on an ambiguous pixel.
+  const fitted = fittedOklabMixture(source, [target, ...others], [targetWeight, ...weights]);
+  return fitted.error <= FLAT_RUN_DISTANCE_SQUARED
+    ? {
+      share: fitted.weights[0],
+      weights: fitted.weights,
+      channels: fitted.channels,
+      error: fitted.error,
+    }
     : null;
 }
 
@@ -970,7 +1107,9 @@ function solveMixtureShare(source, target, others) {
 // many as four flat faces, and flattening or projecting that mixture onto one
 // edge either leaves the old face behind or eats a neighbour. Find the nearby
 // flat face colours and recover only the clicked face's share of the mixture.
-function localTargetShareAt(data, width, height, x, y, target, minimumOthers = 1) {
+function localTargetShareAt(
+  data, width, height, x, y, target, minimumOthers = 1, cache = null,
+) {
   const pixelIndex = y * width + x;
   const offset = pixelIndex * 4;
   const source = {
@@ -1030,6 +1169,21 @@ function localTargetShareAt(data, width, height, x, y, target, minimumOthers = 1
     return null;
   }
 
+  const cacheKey = cache === null
+    ? null
+    : [
+      source.red,
+      source.green,
+      source.blue,
+      minimumOthers,
+      ...candidates
+        .map((colour) => (colour.red << 16) | (colour.green << 8) | colour.blue)
+        .sort((first, second) => first - second),
+    ].join(",");
+  if (cacheKey !== null && cache.has(cacheKey)) {
+    return cache.get(cacheKey);
+  }
+
   const choose = (count, start, chosen, visit) => {
     if (chosen.length === count) {
       visit(chosen);
@@ -1045,13 +1199,44 @@ function localTargetShareAt(data, width, height, x, y, target, minimumOthers = 1
       const solved = solveMixtureShare(source, target, colours);
       if (
         solved !== null &&
-        (best === null || solved.error < best.error - 1e-6)
+        (
+          best === null ||
+          solved.error < best.error - 1e-6 ||
+          (
+            Math.abs(solved.error - best.error) <= 1e-6 &&
+            solved.share < best.share &&
+            (
+              solved.weights.length <= best.weights.length ||
+              solved.weights.slice(1).every((weight) => weight >= MIN_MEANINGFUL_MIXTURE_SHARE)
+            )
+          )
+        )
       ) {
         best = solved;
       }
     });
+    // Most old walls are one ordinary edge. Once its two displayed colours
+    // reproduce the pixel exactly, trying every crossing combination can only
+    // find a more complicated explanation for the same colour. A crossing
+    // needs the later rounds; an exact zero share is also final because this
+    // face did not own any of the pixel.
+    if (
+      best !== null &&
+      (
+        count === 1 ||
+        (best.error <= 1e-6 && best.share <= 1 / 512)
+      )
+    ) {
+      if (cacheKey !== null) {
+        cache.set(cacheKey, best);
+      }
+      return best;
+    }
   }
-  return best === null ? null : best.share;
+  if (cacheKey !== null) {
+    cache.set(cacheKey, best);
+  }
+  return best;
 }
 
 // A flat face has colour-matching company in more than one direction. An
@@ -2065,9 +2250,7 @@ function createGuideBarrier(width, height, lines, previous = null) {
       crossesAlike: new Uint8Array(width * height),
       paper: null,
       painted: false,
-      rebuildFromPaper: false,
     };
-  barrier.rebuildFromPaper = barrier.painted;
   barrier.reach.fill(0);
   barrier.headings.fill(0);
   barrier.crossing.fill(0);
@@ -2332,27 +2515,32 @@ function wallPieces(barrier, width, height, pixelIndex, memory = createWallScrat
 // so traces of colours painted at earlier positions would accumulate there.
 function rebuiltWallColour(data, width, height, pixelIndex, mask, barrier, fill) {
   const offset = pixelIndex * 4;
-  const fillChannels = [fill.r, fill.g, fill.b].map(channelToLinearLight);
-  const colour = [
+  const fillChannels = rgbToOklab(fill.r, fill.g, fill.b);
+  const paper = rgbToOklab(
     barrier.paper[offset],
     barrier.paper[offset + 1],
     barrier.paper[offset + 2],
-  ].map(channelToLinearLight);
+  );
+  const colour = [...paper];
 
   for (const piece of wallPieces(barrier, width, height, pixelIndex)) {
     if (piece.home === -1) {
       continue;
     }
     const homeOffset = piece.home * 4;
+    const current = mask[piece.home]
+      ? fillChannels
+      : rgbToOklab(
+        data[homeOffset],
+        data[homeOffset + 1],
+        data[homeOffset + 2],
+      );
     for (let channel = 0; channel < 3; channel += 1) {
-      const current = mask[piece.home]
-        ? fillChannels[channel]
-        : channelToLinearLight(data[homeOffset + channel]);
-      colour[channel] += piece.share * (current - channelToLinearLight(barrier.paper[homeOffset + channel]));
+      colour[channel] += piece.share * (current[channel] - paper[channel]);
     }
   }
 
-  return colour.map(channelFromLinearLight);
+  return oklabToRgb(...colour);
 }
 
 // A drawn line is a wall a few pixels thick, and the picture under it is never
@@ -3121,7 +3309,6 @@ function fillContiguousRegion(
   let changedPixels = 0;
   const originalPixel = seedIndex(imageData, x, y);
   const wall = wallFor(barrier, wholePicture);
-  const rebuildMovedWall = wall !== null && wall.rebuildFromPaper;
   const firstPixel = nearbyWhiteSeed(imageData, x, y, tolerance, wall);
   const fillX = firstPixel === -1 ? x : firstPixel % imageData.width;
   const fillY = firstPixel === -1 ? y : Math.floor(firstPixel / imageData.width);
@@ -3146,6 +3333,7 @@ function fillContiguousRegion(
     imageData.data[seedOffset] !== normalizedColor.r ||
     imageData.data[seedOffset + 1] !== normalizedColor.g ||
     imageData.data[seedOffset + 2] !== normalizedColor.b;
+  const oldGuideMixtureCache = new Map();
   walkContiguousRegion(imageData, fillX, fillY, tolerance, (
     pixelIndex,
     mask,
@@ -3274,9 +3462,8 @@ function fillContiguousRegion(
     }
 
     if (
-      rebuildMovedWall &&
-      wallCoverage !== -1 &&
       wall !== null &&
+      wallCoverage !== -1 &&
       wall.paper !== null &&
       sourceAlpha === CHANNEL_MAX &&
       replacementAlpha === CHANNEL_MAX
@@ -3325,18 +3512,15 @@ function fillContiguousRegion(
             pixelY,
             target,
             2,
+            oldGuideMixtureCache,
           )
           : null;
         if (crossingShare !== null) {
-          result.data[offset] = replaceLinearLightShare(
-            sourceRed, target.red, normalizedColor.r, crossingShare,
-          );
-          result.data[offset + 1] = replaceLinearLightShare(
-            sourceGreen, target.green, normalizedColor.g, crossingShare,
-          );
-          result.data[offset + 2] = replaceLinearLightShare(
-            sourceBlue, target.blue, normalizedColor.b, crossingShare,
-          );
+          result.data.set(replaceSolvedOklabShare(
+            crossingShare,
+            [target.red, target.green, target.blue],
+            [normalizedColor.r, normalizedColor.g, normalizedColor.b],
+          ), offset);
           if (
             sourceRed !== result.data[offset] ||
             sourceGreen !== result.data[offset + 1] ||
@@ -3463,6 +3647,8 @@ function fillContiguousRegion(
           pixelX,
           pixelY,
           target,
+          1,
+          oldGuideMixtureCache,
         )
         : null;
       // A selected ordinary edge is normally handled by its ink coverage. A
@@ -3475,24 +3661,20 @@ function fillContiguousRegion(
         (
           coverageByPaperFloorOnly ||
           mask[pixelIndex] !== 1 ||
-          (coverage === 1 && Math.abs(inferredOldGuideShare - 0.5) <= 0.02)
+          (coverage === 1 && Math.abs(inferredOldGuideShare.share - 0.5) <= 0.02)
         )
           ? inferredOldGuideShare
           : null;
 
       if (oldGuideShare !== null) {
-        result.data[offset] = replaceLinearLightShare(
-          sourceRed, target.red, normalizedColor.r, oldGuideShare,
-        );
-        result.data[offset + 1] = replaceLinearLightShare(
-          sourceGreen, target.green, normalizedColor.g, oldGuideShare,
-        );
-        result.data[offset + 2] = replaceLinearLightShare(
-          sourceBlue, target.blue, normalizedColor.b, oldGuideShare,
-        );
+        result.data.set(replaceSolvedOklabShare(
+          oldGuideShare,
+          [target.red, target.green, target.blue],
+          [normalizedColor.r, normalizedColor.g, normalizedColor.b],
+        ), offset);
         // Replacing the last share of the paper with the same colour already
         // on the other side should close the seam exactly. Conversion through
-        // linear light can miss by a level or two at a clipped channel; snap
+        // OKLab can miss by a level or two at a clipped channel; snap
         // only that indistinguishable remainder to the flat fill.
         if (
           Math.max(
@@ -3583,17 +3765,14 @@ function fillContiguousRegion(
       // ordinary pixels and keep the ink they carry.
       if (wallCoverage !== -1 && wallCoverage < 1) {
         // Encoded RGB averages complementary colours too dark. Replace the
-        // wall's share in linear light so colours of equal brightness keep that
-        // brightness where they meet.
-        result.data[offset] = replaceLinearLightShare(
-          sourceRed, target.red, normalizedColor.r, coverage,
-        );
-        result.data[offset + 1] = replaceLinearLightShare(
-          sourceGreen, target.green, normalizedColor.g, coverage,
-        );
-        result.data[offset + 2] = replaceLinearLightShare(
-          sourceBlue, target.blue, normalizedColor.b, coverage,
-        );
+        // wall's share in OKLab so the boundary stays halfway between the
+        // perceived lightness of the colours on either side.
+        result.data.set(replaceOklabShare(
+          [sourceRed, sourceGreen, sourceBlue],
+          [target.red, target.green, target.blue],
+          [normalizedColor.r, normalizedColor.g, normalizedColor.b],
+          coverage,
+        ), offset);
       } else {
         const replacementWeight = coverage * backgroundWeight;
         result.data[offset] = clampChannel(
@@ -3637,15 +3816,12 @@ function fillContiguousRegion(
         : repaintingPaintedArea ? target.green : wall.paper[offset + 1];
       const replacedBlue = !knownPaper ? sourceBlue
         : repaintingPaintedArea ? target.blue : wall.paper[offset + 2];
-      result.data[offset] = replaceLinearLightShare(
-        sourceRed, replacedRed, normalizedColor.r, coverage,
-      );
-      result.data[offset + 1] = replaceLinearLightShare(
-        sourceGreen, replacedGreen, normalizedColor.g, coverage,
-      );
-      result.data[offset + 2] = replaceLinearLightShare(
-        sourceBlue, replacedBlue, normalizedColor.b, coverage,
-      );
+      result.data.set(replaceOklabShare(
+        [sourceRed, sourceGreen, sourceBlue],
+        [replacedRed, replacedGreen, replacedBlue],
+        [normalizedColor.r, normalizedColor.g, normalizedColor.b],
+        coverage,
+      ), offset);
     } else if (!normalizedColor.hasExplicitAlpha && !fillingTransparency) {
       result.data[offset] = clampChannel(sourceRed * (1 - coverage) + normalizedColor.r * coverage);
       result.data[offset + 1] = clampChannel(sourceGreen * (1 - coverage) + normalizedColor.g * coverage);
