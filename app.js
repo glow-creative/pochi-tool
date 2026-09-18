@@ -1462,7 +1462,18 @@ function guidePolyline(points) {
     return pointBeyond(points[end], points[index < 0 ? 1 : count - 2]) ?? alone;
   };
 
+  // A curve reaches the wall as a run of short straight pieces, and the wall
+  // cannot tell a run that bends from two lines crossing by their headings
+  // alone: either way the pieces lie a few degrees apart. The corner is known
+  // here, so it is carried along. Each piece says which run of pieces it
+  // belongs to and where it sits along that run, and only pieces of one run
+  // lying near each other along it are one wall bending. Without this the point
+  // of a wedge sharper than about 34 degrees was read as one line bending, and
+  // the sliver between its two sides was given no share of the pixels they run
+  // through.
   const line = [points[0]];
+  const runs = [];
+  let run = 0;
   for (let index = 0; index < (ring ? count : count - 1); index += 1) {
     const from = points[index];
     const to = neighbour(index + 1, from);
@@ -1471,8 +1482,52 @@ function guidePolyline(points) {
     const steps = Math.max(2, Math.ceil(Math.hypot(to.x - from.x, to.y - from.y)));
     for (let step = 1; step <= steps; step += 1) {
       line.push(curvePointBetween(before, from, to, after, step / steps));
+      runs.push(run);
+    }
+    if (to.corner) {
+      run += 1;
     }
   }
+
+  // Where to start counting along each run. A ring that carries on through the
+  // point it began at is one wall there, so the pieces that end at the seam are
+  // counted before the pieces that leave it: that way the two read as
+  // neighbours instead of as the two ends of the run. A ring that begins at a
+  // corner is left alone - its first and last pieces are the two ends of a run
+  // that stops at that corner, which is what a corner means.
+  const carriesOnRoundTheSeam = ring && !points[0].corner;
+  const order = [];
+  if (carriesOnRoundTheSeam && run > 0) {
+    let seam = runs.length;
+    while (seam > 0 && runs[seam - 1] === run) {
+      seam -= 1;
+    }
+    for (let index = seam; index < runs.length; index += 1) {
+      runs[index] = 0;
+      order.push(index);
+    }
+    for (let index = 0; index < seam; index += 1) {
+      order.push(index);
+    }
+  } else {
+    for (let index = 0; index < runs.length; index += 1) {
+      order.push(index);
+    }
+  }
+
+  const counted = new Map();
+  const spots = new Array(runs.length);
+  for (const index of order) {
+    const spot = counted.get(runs[index]) ?? 0;
+    spots[index] = spot;
+    counted.set(runs[index], spot + 1);
+  }
+
+  line.runs = runs;
+  line.spots = spots;
+  // A ring with no corner at all is one run that comes back to itself: counting
+  // along it wraps, so its first and last pieces are neighbours too.
+  line.cyclicRun = carriesOnRoundTheSeam && run === 0 ? 0 : -1;
   return line;
 }
 

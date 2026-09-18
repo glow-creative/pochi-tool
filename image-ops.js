@@ -1274,14 +1274,35 @@ const WALL_OTHER_SIDE = WALL_LIE_STEPS;
 // crossing: a curve is stamped as a run of short straight pieces, and where one
 // piece ends and the next begins the pixel is not a corner.
 const WALL_CROSSING_TURN = 24;
-// How far out of a piece of a wall pixel to look for the area it belongs to,
-// and in what steps. Six pixels clears the wall even at the tip of a wedge.
-const WALL_MARCH_STRIDE = 0.5;
-const WALL_MARCH_STEPS = 12;
+// How far apart along one run two pieces may sit and still be one wall bending.
+// A pixel is about a piece long, so two or three of them can reach into it.
+const WALL_SMOOTH_SPAN = 4;
+// How far, and over how many pieces, to look out of a piece of a wall pixel for
+// the area it belongs to. Near the point of a wedge the way out runs along the
+// wedge, so the walk has to cover the whole narrow stretch: this clears about
+// five degrees however the wedge is turned. Sharper than that and the point
+// keeps its paper. Nearly every piece finds its area in a step or two, so the
+// budget is only ever spent where two walls pinch.
+const WALL_HOME_REACH = 48;
+const WALL_HOME_PIECES = 400;
+// How much of the side between two pixels two pieces have to share to be one
+// way through. Where a line falls within a pixel is kept to a sixty-fourth,
+// and the two pixels either side of it round that differently, so an overlap
+// thinner than a few of those says nothing about the shape that was drawn.
+const WALL_TOUCH_SPAN = 3 / WALL_DISTANCE_STEPS;
+// Pieces already cut, kept while a walk is passing. Each step asks its
+// neighbours for their pieces and every neighbour asks back, so without this
+// the wall is cut again once for each pixel beside it. A walk only ever works
+// its way along, so a few thousand is as much of it as is ever asked for
+// twice, and holding more would cost more than cutting them again.
+const WALL_SHAPE_MEMORY = 1 << 12;
 const WALL_SQUARE = Object.freeze([-0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5]);
 // A pixel is cut in two by one line, and into four corners by a crossing.
 const WALL_HALVES = Object.freeze([[1, 0], [-1, 0]]);
 const WALL_CORNERS = Object.freeze([[1, 1], [1, -1], [-1, 1], [-1, -1]]);
+// Which side of a pixel each neighbour lies across: the way to it, and
+// whether that side runs down the pixel (0) or across it (1).
+const WALL_SIDES = Object.freeze([[-1, 0, 0], [1, 0, 0], [0, -1, 1], [0, 1, 1]]);
 
 /** Whether a guide line shuts this pixel off, rather than merely running near it. */
 function isWalledOff(barrier, pixelIndex) {
@@ -1649,6 +1670,18 @@ function keepSeedComponent(data, region, width, height, firstPixel, target, walk
   let pendingIndex = 0;
   let count = 1;
 
+  // Where two lines pinch, the area carries on through pixels the lines run
+  // over, and a walk that steps only from pixel to pixel cannot follow it. The
+  // first walk did follow it, so take its word for those pixels rather than
+  // cut off everything beyond them.
+  for (const pixelIndex of region.bridged) {
+    if (region.mask[pixelIndex] && !reached[pixelIndex]) {
+      reached[pixelIndex] = 1;
+      count += 1;
+      pending.push(pixelIndex);
+    }
+  }
+
   while (pendingIndex < pending.length) {
     const pixelIndex = pending[pendingIndex];
     pendingIndex += 1;
@@ -1845,7 +1878,7 @@ function sameWallLine(first, second) {
 // First settle the nearest line independently of traversal order. Only then can
 // another heading be judged against it: comparing against a nearest line that
 // is still changing makes a tight bend look different when drawn backwards.
-function recordNearestWall(barrier, pixelIndex, distance, heading) {
+function recordNearestWall(barrier, pixelIndex, distance, heading, at) {
   const reach = 1 + Math.round(
     distance * WALL_DISTANCE_STEPS + WALL_GEOMETRY_EPSILON,
   );
@@ -1859,16 +1892,34 @@ function recordNearestWall(barrier, pixelIndex, distance, heading) {
   ) {
     barrier.reach[pixelIndex] = reach;
     barrier.headings[slot] = heading;
+    // The piece itself, counted from one so that nought means none. Its run and
+    // where it sits along that run are read back from the list when needed,
+    // which is one number a pixel rather than two.
+    barrier.nearest[pixelIndex] = at + 1;
   }
 }
 
 // The nearest heading that differs from the settled line is the second cut of
 // a crossing. A third would need a third line through the same pixel, which is
 // a knot no drawing asks for.
-function recordCrossingWall(barrier, pixelIndex, distance, heading) {
+function recordCrossingWall(barrier, pixelIndex, distance, heading, at) {
   const slot = pixelIndex * 2;
+  const nearest = barrier.nearest[pixelIndex];
+  const beside = nearest === 0 ? null : barrier.segments[nearest - 1];
+  const piece = barrier.segments[at];
 
-  if (sameWallLine(barrier.headings[slot], heading)) {
+  // Two headings that lie alike are one line bending only where they are the
+  // same run of pieces, met near the same place along it. Either side of a
+  // point the user asked to keep sharp, two lines of their own, and a line that
+  // comes back across itself are all crossings, however shallow the angle. That
+  // is what lets the point of a narrow wedge hold paint.
+  const lieAlike = sameWallLine(barrier.headings[slot], heading);
+  if (
+    lieAlike
+    && beside !== null
+    && piece.run === beside.run
+    && bendsTogether(barrier, piece.run, piece.spot, beside.spot)
+  ) {
     return;
   }
   const reach = 1 + Math.round(
@@ -1882,10 +1933,13 @@ function recordCrossingWall(barrier, pixelIndex, distance, heading) {
   ) {
     barrier.headings[slot + 1] = heading;
     barrier.crossing[pixelIndex] = reach;
+    // Read back where the pieces of the pixel are cut: the headings alone
+    // cannot say that these two were kept apart on purpose.
+    barrier.crossesAlike[pixelIndex] = lieAlike ? 1 : 0;
   }
 }
 
-function stampWallRun(barrier, width, height, from, to, record) {
+function stampWallRun(barrier, width, height, from, to, record, at) {
   const left = Math.max(0, Math.floor(Math.min(from.x, to.x) - WALL_RECORD_REACH));
   const right = Math.min(width - 1, Math.ceil(Math.max(from.x, to.x) + WALL_RECORD_REACH));
   const top = Math.max(0, Math.floor(Math.min(from.y, to.y) - WALL_RECORD_REACH));
@@ -1918,7 +1972,7 @@ function stampWallRun(barrier, width, height, from, to, record) {
       const heading = awayX * across.nx + awayY * across.ny >= -WALL_GEOMETRY_EPSILON
         ? lie
         : lie | WALL_OTHER_SIDE;
-      record(barrier, y * width + x, distance, heading);
+      record(barrier, y * width + x, distance, heading, at);
     }
   }
 }
@@ -1928,13 +1982,61 @@ function stampWallRun(barrier, width, height, from, to, record) {
  * Pass the wall from last time to write over it rather than make another: a
  * point being dragged rebuilds this on every movement of the mouse.
  */
+// A line may say which run of pieces each of its segments belongs to, in `runs`,
+// and where along that run each one sits, in `spots`. Pieces of one run lying
+// near each other along it are one wall bending; anything else is a crossing,
+// however alike the two lie. That is how a point the user asked to keep sharp
+// reaches the wall as a corner, how a line that crosses itself is two walls
+// where it does, and how two lines of their own always cross. A line that says
+// nothing is one run, counted in the order its pieces were drawn.
+function guideSegments(lines) {
+  const segments = [];
+  const runLength = new Map();
+  const cyclicRuns = new Set();
+  let nextRun = 1;
+  for (const line of lines) {
+    const base = nextRun;
+    let highest = 0;
+    for (let index = 0; index < line.length - 1; index += 1) {
+      const within = line.runs === undefined ? 0 : (line.runs[index] ?? 0);
+      if (within > highest) {
+        highest = within;
+      }
+      const run = base + within;
+      const spot = line.spots === undefined ? index : (line.spots[index] ?? index);
+      runLength.set(run, Math.max(runLength.get(run) ?? 0, spot + 1));
+      segments.push({ from: line[index], to: line[index + 1], run, spot });
+    }
+    if (line.cyclicRun !== undefined && line.cyclicRun >= 0) {
+      cyclicRuns.add(base + line.cyclicRun);
+    }
+    nextRun = base + highest + 1;
+  }
+  return { segments, runLength, cyclicRuns };
+}
+
+// Whether two pieces of one run sit near enough along it to be the same wall
+// bending. A pixel holds only a piece or two of a curve, so a handful either
+// way is generous; anything further apart is the run coming back on itself.
+function bendsTogether(barrier, run, spot, otherSpot) {
+  let apart = Math.abs(spot - otherSpot);
+  if (barrier.cyclicRuns.has(run)) {
+    const length = barrier.runLength.get(run) ?? 0;
+    apart = Math.min(apart, length - apart);
+  }
+  return apart <= WALL_SMOOTH_SPAN;
+}
+
 function createGuideBarrier(width, height, lines, previous = null) {
-  const barrier = previous !== null && previous.reach.length === width * height
+  const barrier = previous !== null
+    && previous.reach.length === width * height
+    && previous.crossesAlike !== undefined
     ? previous
     : {
       reach: new Uint8Array(width * height),
       headings: new Uint8Array(width * height * 2),
       crossing: new Uint8Array(width * height),
+      crossesAlike: new Uint8Array(width * height),
       paper: null,
       painted: false,
       rebuildFromPaper: false,
@@ -1943,31 +2045,26 @@ function createGuideBarrier(width, height, lines, previous = null) {
   barrier.reach.fill(0);
   barrier.headings.fill(0);
   barrier.crossing.fill(0);
+  barrier.crossesAlike.fill(0);
 
-  for (const line of lines) {
-    for (let index = 0; index < line.length - 1; index += 1) {
-      stampWallRun(
-        barrier,
-        width,
-        height,
-        line[index],
-        line[index + 1],
-        recordNearestWall,
-      );
+  // Which piece of which line stands nearest is asked only while the wall is
+  // being stamped. Reading it back needs no more than the one answer recorded
+  // in crossesAlike, so this is put down again afterwards rather than held for
+  // as long as the picture is open.
+  const { segments, runLength, cyclicRuns } = guideSegments(lines);
+  barrier.nearest = new Uint32Array(width * height);
+  barrier.segments = segments;
+  barrier.runLength = runLength;
+  barrier.cyclicRuns = cyclicRuns;
+  for (const record of [recordNearestWall, recordCrossingWall]) {
+    for (let at = 0; at < segments.length; at += 1) {
+      stampWallRun(barrier, width, height, segments[at].from, segments[at].to, record, at);
     }
   }
-  for (const line of lines) {
-    for (let index = 0; index < line.length - 1; index += 1) {
-      stampWallRun(
-        barrier,
-        width,
-        height,
-        line[index],
-        line[index + 1],
-        recordCrossingWall,
-      );
-    }
-  }
+  barrier.nearest = null;
+  barrier.segments = null;
+  barrier.runLength = null;
+  barrier.cyclicRuns = null;
   return barrier;
 }
 
@@ -2032,50 +2129,77 @@ function polygonMiddle(polygon) {
   return { area: Math.abs(twiceArea) / 2, x: x / (3 * twiceArea), y: y / (3 * twiceArea) };
 }
 
-// Which area a piece of a wall pixel belongs to: step out of the middle of the
-// piece, the way that leads away from every line that cut it, until the wall
-// runs out. The tip of a narrow wedge is several pixels of wall away from the
-// area it belongs to, while the areas on either side of it are one pixel away,
-// so asking which area is nearest hands them a corner that is not theirs.
-function wallPieceHome(barrier, width, height, pixelX, pixelY, middle, awayX, awayY) {
-  const length = Math.hypot(awayX, awayY);
-  if (length === 0) {
-    return -1;
+// The stretch of one side of a pixel a piece takes up, or nothing where the
+// piece does not reach that side.
+function wallPieceSpan(polygon, axis, at) {
+  let low = Infinity;
+  let high = -Infinity;
+  for (let corner = 0; corner < polygon.length; corner += 2) {
+    if (Math.abs(polygon[corner + axis] - at) > WALL_GEOMETRY_EPSILON) {
+      continue;
+    }
+    const across = polygon[corner + 1 - axis];
+    low = Math.min(low, across);
+    high = Math.max(high, across);
   }
+  return high - low > WALL_TOUCH_SPAN ? { low, high } : null;
+}
 
-  const strideX = (awayX / length) * WALL_MARCH_STRIDE;
-  const strideY = (awayY / length) * WALL_MARCH_STRIDE;
-  let x = pixelX + middle.x;
-  let y = pixelY + middle.y;
-  for (let step = 0; step < WALL_MARCH_STEPS; step += 1) {
-    x += strideX;
-    y += strideY;
-    const atX = Math.round(x);
-    const atY = Math.round(y);
-    if (atX < 0 || atY < 0 || atX >= width || atY >= height) {
-      return -1;
-    }
-    const at = atY * width + atX;
-    if (!isWalledOff(barrier, at)) {
-      return at;
+function spansMeet(here, there) {
+  return there !== null
+    && Math.min(here.high, there.high) - Math.max(here.low, there.low) > WALL_TOUCH_SPAN;
+}
+
+// Whether two points lie the same side of every line that cuts a pixel.
+function sameSideOfCuts(cuts, hereX, hereY, thereX, thereY) {
+  for (const cut of cuts) {
+    const here = cut.nx * hereX + cut.ny * hereY + cut.offset;
+    const there = cut.nx * thereX + cut.ny * thereY + cut.offset;
+    if ((here >= 0) !== (there >= 0)) {
+      return false;
     }
   }
-  return -1;
+  return true;
+}
+
+// Whether two pieces of neighbouring pixels are one way through. They have to
+// share a stretch of the side between them, and each has to lie the side of
+// the other's lines that the other does: a line running along the join between
+// two pixels cuts neither of them, so the overlap alone would step over it.
+function wallPiecesJoin(here, at, span, there, other, axis, side, stepX, stepY) {
+  const piece = here[at];
+  const beyond = there[other];
+  if (!spansMeet(span, wallPieceSpan(beyond.polygon, axis, -side))) {
+    return false;
+  }
+  return sameSideOfCuts(here.cuts, piece.x, piece.y, beyond.x + stepX, beyond.y + stepY)
+    && sameSideOfCuts(there.cuts, beyond.x, beyond.y, piece.x - stepX, piece.y - stepY);
+}
+
+// What a walk over the pieces keeps to hand: the pieces it has already cut,
+// and the pieces one search has already been to.
+function createWallScratch() {
+  return { shapes: new Map(), seen: new Map() };
 }
 
 // The pieces the lines cut one pixel of wall into, each with the share of the
-// pixel it covers and the area it belongs to. The shares are the areas of the
-// pixel's own square cut by one line or two, so they add up to the whole of it.
-function wallPieces(barrier, width, height, pixelIndex) {
+// pixel it covers and the shape it covers it with. The shares are the areas of
+// the pixel's own square cut by one line or two, so they add up to the whole
+// of it.
+function wallPieceShapes(memory, barrier, pixelIndex) {
+  const remembered = memory.shapes.get(pixelIndex);
+  if (remembered !== undefined) {
+    return remembered;
+  }
+
   const slot = pixelIndex * 2;
   const near = wallEdgeAt(barrier.headings[slot], barrier.reach[pixelIndex]);
   const across = barrier.crossing[pixelIndex] !== 0
-    && !sameWallLine(barrier.headings[slot], barrier.headings[slot + 1])
+    && (barrier.crossesAlike[pixelIndex] === 1
+      || !sameWallLine(barrier.headings[slot], barrier.headings[slot + 1]))
     ? wallEdgeAt(barrier.headings[slot + 1], barrier.crossing[pixelIndex])
     : null;
-  const pixelX = pixelIndex % width;
-  const pixelY = (pixelIndex - pixelX) / width;
-  const pieces = [];
+  const shapes = [];
 
   for (const [nearSide, acrossSide] of across === null ? WALL_HALVES : WALL_CORNERS) {
     let piece = clipToSide(
@@ -2094,18 +2218,86 @@ function wallPieces(barrier, width, height, pixelIndex) {
     }
 
     const middle = polygonMiddle(piece);
-    if (middle === null) {
-      continue;
+    if (middle !== null) {
+      shapes.push({ share: middle.area, polygon: piece, x: middle.x, y: middle.y });
     }
-
-    const awayX = near.nx * nearSide + (acrossSide === 0 ? 0 : across.nx * acrossSide);
-    const awayY = near.ny * nearSide + (acrossSide === 0 ? 0 : across.ny * acrossSide);
-    pieces.push({
-      share: middle.area,
-      home: wallPieceHome(barrier, width, height, pixelX, pixelY, middle, awayX, awayY),
-    });
   }
-  return pieces;
+  shapes.cuts = across === null ? [near] : [near, across];
+
+  if (memory.shapes.size >= WALL_SHAPE_MEMORY) {
+    memory.shapes.clear();
+  }
+  memory.shapes.set(pixelIndex, shapes);
+  return shapes;
+}
+
+// Which area a piece of a wall pixel belongs to: step from piece to touching
+// piece, never across a line, until the walk steps out of the wall. The tip of
+// a narrow wedge is a long stretch of wall from the area it belongs to, and the
+// areas either side of it are one pixel away - but those are the far side of a
+// line, which no step may cross, so the nearest area the walk can reach is the
+// one down the wedge. Two pieces touch where their sides of the pixel between
+// them overlap, which is a question about the lines as drawn; marching out
+// along the line that bisects a piece instead asks the pixel grid, and a wedge
+// turned off that grid is missed by a hair over the length of its narrow part.
+function wallPieceHome(memory, barrier, width, height, pixelIndex, pieceAt) {
+  const { seen } = memory;
+  seen.clear();
+  seen.set(pixelIndex * 4 + pieceAt, 1);
+  let edge = [pixelIndex * 4 + pieceAt];
+
+  for (let step = 0; step < WALL_HOME_REACH && edge.length > 0; step += 1) {
+    const next = [];
+    for (const node of edge) {
+      const piece = node % 4;
+      const at = (node - piece) / 4;
+      const x = at % width;
+      const y = (at - x) / width;
+      const shapes = wallPieceShapes(memory, barrier, at);
+      const { polygon } = shapes[piece];
+
+      for (const [towardsX, towardsY, axis] of WALL_SIDES) {
+        const nextX = x + towardsX;
+        const nextY = y + towardsY;
+        if (nextX < 0 || nextY < 0 || nextX >= width || nextY >= height) {
+          continue;
+        }
+        const side = towardsX + towardsY > 0 ? 0.5 : -0.5;
+        const here = wallPieceSpan(polygon, axis, side);
+        if (here === null) {
+          continue;
+        }
+        const neighbour = nextY * width + nextX;
+        if (!isWalledOff(barrier, neighbour)) {
+          return neighbour;
+        }
+        const theirs = wallPieceShapes(memory, barrier, neighbour);
+        for (let other = 0; other < theirs.length; other += 1) {
+          const reached = neighbour * 4 + other;
+          if (seen.has(reached) || seen.size >= WALL_HOME_PIECES) {
+            continue;
+          }
+          if (!wallPiecesJoin(shapes, piece, here, theirs, other, axis, side, towardsX, towardsY)) {
+            continue;
+          }
+          seen.set(reached, 1);
+          next.push(reached);
+        }
+      }
+    }
+    edge = next;
+  }
+  return -1;
+}
+
+// The pieces of one pixel of wall, each with its share of the pixel and the
+// area it belongs to. Pass the scratch of a walk already under way to reuse the
+// pieces it has cut; on its own each call starts from nothing.
+function wallPieces(barrier, width, height, pixelIndex, memory = createWallScratch()) {
+  return wallPieceShapes(memory, barrier, pixelIndex).map((shape, at) => ({
+    share: shape.share,
+    home: wallPieceHome(memory, barrier, width, height, pixelIndex, at),
+  }));
 }
 
 // Rebuild a wall pixel from the page the guide was first drawn over and the
@@ -2173,6 +2365,7 @@ function claimWallEdge(data, width, height, region, seedPixel, maximumDistanceSq
   };
 
   const share = new Uint8Array(width * height);
+  const memory = createWallScratch();
   let count = region.count;
   for (let pixelIndex = 0; pixelIndex < barrier.reach.length; pixelIndex += 1) {
     if (!isWalledOff(barrier, pixelIndex) || region.mask[pixelIndex]) {
@@ -2183,7 +2376,7 @@ function claimWallEdge(data, width, height, region, seedPixel, maximumDistanceSq
     }
 
     let coverage = 0;
-    for (const piece of wallPieces(barrier, width, height, pixelIndex)) {
+    for (const piece of wallPieces(barrier, width, height, pixelIndex, memory)) {
       if (piece.home !== -1 && region.mask[piece.home]) {
         coverage += piece.share;
       }
@@ -2395,10 +2588,118 @@ function collectContiguousRegion(
         }
       }
     }
-    return { mask: visited, spans, count: visitedCount };
+    return { mask: visited, spans, count: visitedCount, bridged: [] };
   }
 
-  while (pending.length > 0) {
+  // A guide line is thicker than the shape it divides. Where two lines pinch,
+  // the way through is a sliver of the pixels they both run over, and there is
+  // no run of whole pixels left to walk down: the point of a narrow wedge is
+  // reached over the pieces the lines cut those pixels into, not over the
+  // pixels themselves. The pieces are only a way through; what each of them
+  // takes of the pixel it lies in is settled later, by its share.
+  const memory = barrier === null ? null : createWallScratch();
+  const wallPending = [];
+  // Pixels this walk reached over the pieces rather than over their neighbours.
+  // A later pass that asks again what is joined to what has to start from these
+  // as well, because it asks the question a pixel at a time.
+  const bridged = [];
+  const wallSeen = barrier === null ? null : new Uint8Array(width * height);
+  // Whether a pixel the lines run over is this area's is a question about the
+  // page the guide was drawn over, for the same reason the shares are: the
+  // pixel now carries paint from every area it has been shared out to.
+  const wallData = barrier !== null && barrier.paper !== null ? barrier.paper : data;
+  const wallTarget = barrier === null ? null : {
+    red: wallData[firstPixel * 4],
+    green: wallData[firstPixel * 4 + 1],
+    blue: wallData[firstPixel * 4 + 2],
+    alpha: wallData[firstPixel * 4 + 3],
+  };
+  const wallHolds = (pixelIndex) =>
+    isWithinTolerance(wallData, pixelIndex, wallTarget, maximumDistanceSquared);
+
+  // Only the lines say anything about what a pixel holds below its own size.
+  // Where a piece runs alongside something the drawing itself stopped the fill
+  // at, the gap between the two is the pixel grid's, not the drawing's, and is
+  // no more a way through than the join between two pixels of one stroke.
+  const wallPieceRunsClear = (polygon, x, y) => {
+    for (const [towardsX, towardsY, axis] of WALL_SIDES) {
+      const nextX = x + towardsX;
+      const nextY = y + towardsY;
+      if (nextX < 0 || nextY < 0 || nextX >= width || nextY >= height) {
+        continue;
+      }
+      const side = towardsX + towardsY > 0 ? 0.5 : -0.5;
+      if (wallPieceSpan(polygon, axis, side) !== null && !wallHolds(nextY * width + nextX)) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const reachIntoWall = (pixelIndex, axis, side, span, from, fromPiece, stepX, stepY) => {
+    if (!isWalledOff(barrier, pixelIndex) || !wallHolds(pixelIndex)) {
+      return;
+    }
+    const x = pixelIndex % width;
+    const y = (pixelIndex - x) / width;
+    const shapes = wallPieceShapes(memory, barrier, pixelIndex);
+    for (let piece = 0; piece < shapes.length; piece += 1) {
+      const taken = 1 << piece;
+      if ((wallSeen[pixelIndex] & taken) !== 0) {
+        continue;
+      }
+      const joins = from === null
+        ? spansMeet(span, wallPieceSpan(shapes[piece].polygon, axis, -side))
+        : wallPiecesJoin(from, fromPiece, span, shapes, piece, axis, side, stepX, stepY);
+      if (!joins || !wallPieceRunsClear(shapes[piece].polygon, x, y)) {
+        continue;
+      }
+      wallSeen[pixelIndex] |= taken;
+      wallPending.push(pixelIndex * 4 + piece);
+    }
+  };
+
+  // Every side of a free pixel is open along its whole length, so a piece of
+  // the wall beside it is reached wherever it touches that side at all.
+  const WHOLE_SIDE = { low: -0.5, high: 0.5 };
+  const reachOutOfArea = (pixelIndex, axis, side) => {
+    reachIntoWall(pixelIndex, axis, side, WHOLE_SIDE, null, 0, 0, 0);
+  };
+
+  const stepAlongWall = (node) => {
+    const piece = node % 4;
+    const at = (node - piece) / 4;
+    const x = at % width;
+    const y = (at - x) / width;
+    const shapes = wallPieceShapes(memory, barrier, at);
+    const { polygon } = shapes[piece];
+    for (const [towardsX, towardsY, axis] of WALL_SIDES) {
+      const nextX = x + towardsX;
+      const nextY = y + towardsY;
+      if (nextX < 0 || nextY < 0 || nextX >= width || nextY >= height) {
+        continue;
+      }
+      const side = towardsX + towardsY > 0 ? 0.5 : -0.5;
+      const here = wallPieceSpan(polygon, axis, side);
+      if (here === null) {
+        continue;
+      }
+      const neighbour = nextY * width + nextX;
+      if (isWalledOff(barrier, neighbour)) {
+        reachIntoWall(neighbour, axis, side, here, shapes, piece, towardsX, towardsY);
+      } else if (!visited[neighbour] && belongs(neighbour)) {
+        pending.push(neighbour);
+        bridged.push(neighbour);
+      }
+    }
+  };
+
+  while (pending.length > 0 || wallPending.length > 0) {
+    if (pending.length === 0) {
+      stepAlongWall(wallPending.pop());
+      continue;
+    }
+
     const pixelIndex = pending.pop();
     if (visited[pixelIndex] || !belongs(pixelIndex)) {
       continue;
@@ -2433,6 +2734,8 @@ function collectContiguousRegion(
         const upperMatches = !visited[upperPixel] && belongs(upperPixel);
         if (upperMatches && !upperSpanQueued) {
           pending.push(upperPixel);
+        } else if (!upperMatches && barrier !== null) {
+          reachOutOfArea(upperPixel, 1, -0.5);
         }
         upperSpanQueued = upperMatches;
       }
@@ -2442,8 +2745,19 @@ function collectContiguousRegion(
         const lowerMatches = !visited[lowerPixel] && belongs(lowerPixel);
         if (lowerMatches && !lowerSpanQueued) {
           pending.push(lowerPixel);
+        } else if (!lowerMatches && barrier !== null) {
+          reachOutOfArea(lowerPixel, 1, 0.5);
         }
         lowerSpanQueued = lowerMatches;
+      }
+    }
+
+    if (barrier !== null) {
+      if (left > 0) {
+        reachOutOfArea(rowStart + left - 1, 0, -0.5);
+      }
+      if (right + 1 < width) {
+        reachOutOfArea(rowStart + right + 1, 0, 0.5);
       }
     }
 
@@ -2452,7 +2766,7 @@ function collectContiguousRegion(
     }
   }
 
-  return { mask: visited, spans, count: visitedCount };
+  return { mask: visited, spans, count: visitedCount, bridged };
 }
 
 function walkContiguousRegion(
