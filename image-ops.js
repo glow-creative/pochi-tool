@@ -476,6 +476,28 @@ function clampChannel(value) {
   return Math.min(CHANNEL_MAX, Math.max(0, Math.round(value)));
 }
 
+function channelToLinearLight(channel) {
+  const encoded = channel / CHANNEL_MAX;
+  return encoded <= 0.04045
+    ? encoded / 12.92
+    : ((encoded + 0.055) / 1.055) ** 2.4;
+}
+
+function channelFromLinearLight(channel) {
+  const linear = Math.min(1, Math.max(0, channel));
+  const encoded = linear <= 0.0031308
+    ? linear * 12.92
+    : 1.055 * linear ** (1 / 2.4) - 0.055;
+  return clampChannel(encoded * CHANNEL_MAX);
+}
+
+function replaceLinearLightShare(source, replacement, fill, share) {
+  return channelFromLinearLight(
+    channelToLinearLight(source) +
+    share * (channelToLinearLight(fill) - channelToLinearLight(replacement)),
+  );
+}
+
 function normalizeColor(color) {
   if (
     color == null ||
@@ -873,14 +895,18 @@ function isFlatColourAt(data, width, height, pixelIndex) {
   return matching >= 3;
 }
 
+// Guide seams are composed in linear light. Solve their stored mixtures in the
+// same space; encoded RGB would infer the wrong face share from a bright seam.
 function solveMixtureShare(source, target, others) {
   const count = others.length;
-  const targetChannels = [target.red, target.green, target.blue];
-  const sourceChannels = [source.red, source.green, source.blue];
+  const targetChannels = [target.red, target.green, target.blue]
+    .map((channel) => channelToLinearLight(channel) * CHANNEL_MAX);
+  const sourceChannels = [source.red, source.green, source.blue]
+    .map((channel) => channelToLinearLight(channel) * CHANNEL_MAX);
   const vectors = others.map((colour) => [
-    colour.red - target.red,
-    colour.green - target.green,
-    colour.blue - target.blue,
+    channelToLinearLight(colour.red) * CHANNEL_MAX - targetChannels[0],
+    channelToLinearLight(colour.green) * CHANNEL_MAX - targetChannels[1],
+    channelToLinearLight(colour.blue) * CHANNEL_MAX - targetChannels[2],
   ]);
   const delta = sourceChannels.map(
     (level, channel) => level - targetChannels[channel],
@@ -2306,12 +2332,12 @@ function wallPieces(barrier, width, height, pixelIndex, memory = createWallScrat
 // so traces of colours painted at earlier positions would accumulate there.
 function rebuiltWallColour(data, width, height, pixelIndex, mask, barrier, fill) {
   const offset = pixelIndex * 4;
-  const fillChannels = [fill.r, fill.g, fill.b];
+  const fillChannels = [fill.r, fill.g, fill.b].map(channelToLinearLight);
   const colour = [
     barrier.paper[offset],
     barrier.paper[offset + 1],
     barrier.paper[offset + 2],
-  ];
+  ].map(channelToLinearLight);
 
   for (const piece of wallPieces(barrier, width, height, pixelIndex)) {
     if (piece.home === -1) {
@@ -2321,12 +2347,12 @@ function rebuiltWallColour(data, width, height, pixelIndex, mask, barrier, fill)
     for (let channel = 0; channel < 3; channel += 1) {
       const current = mask[piece.home]
         ? fillChannels[channel]
-        : data[homeOffset + channel];
-      colour[channel] += piece.share * (current - barrier.paper[homeOffset + channel]);
+        : channelToLinearLight(data[homeOffset + channel]);
+      colour[channel] += piece.share * (current - channelToLinearLight(barrier.paper[homeOffset + channel]));
     }
   }
 
-  return colour.map(clampChannel);
+  return colour.map(channelFromLinearLight);
 }
 
 // A drawn line is a wall a few pixels thick, and the picture under it is never
@@ -2617,10 +2643,13 @@ function collectContiguousRegion(
   const wallHolds = (pixelIndex) =>
     isWithinTolerance(wallData, pixelIndex, wallTarget, maximumDistanceSquared);
 
-  // Only the lines say anything about what a pixel holds below its own size.
-  // Where a piece runs alongside something the drawing itself stopped the fill
-  // at, the gap between the two is the pixel grid's, not the drawing's, and is
-  // no more a way through than the join between two pixels of one stroke.
+  // A wall pixel now carries the colours painted on every side of it, so only
+  // the page below the guide can say whether another wall pixel is one this
+  // area's piece may cross. Beside the wall, however, the picture as it is now
+  // decides whether the piece still borders this area. Looking at the old page
+  // there let a guide laid over white act as a tunnel past a face painted later:
+  // two currently separate areas of the same colour then became one bucket
+  // region. A piece touching such a different current face stops there.
   const wallPieceRunsClear = (polygon, x, y) => {
     for (const [towardsX, towardsY, axis] of WALL_SIDES) {
       const nextX = x + towardsX;
@@ -2629,7 +2658,14 @@ function collectContiguousRegion(
         continue;
       }
       const side = towardsX + towardsY > 0 ? 0.5 : -0.5;
-      if (wallPieceSpan(polygon, axis, side) !== null && !wallHolds(nextY * width + nextX)) {
+      if (wallPieceSpan(polygon, axis, side) === null) {
+        continue;
+      }
+      const neighbour = nextY * width + nextX;
+      const neighbourHolds = isWalledOff(barrier, neighbour)
+        ? wallHolds(neighbour)
+        : belongs(neighbour);
+      if (!neighbourHolds) {
         return false;
       }
     }
@@ -3292,14 +3328,14 @@ function fillContiguousRegion(
           )
           : null;
         if (crossingShare !== null) {
-          result.data[offset] = clampChannel(
-            sourceRed + crossingShare * (normalizedColor.r - target.red),
+          result.data[offset] = replaceLinearLightShare(
+            sourceRed, target.red, normalizedColor.r, crossingShare,
           );
-          result.data[offset + 1] = clampChannel(
-            sourceGreen + crossingShare * (normalizedColor.g - target.green),
+          result.data[offset + 1] = replaceLinearLightShare(
+            sourceGreen, target.green, normalizedColor.g, crossingShare,
           );
-          result.data[offset + 2] = clampChannel(
-            sourceBlue + crossingShare * (normalizedColor.b - target.blue),
+          result.data[offset + 2] = replaceLinearLightShare(
+            sourceBlue, target.blue, normalizedColor.b, crossingShare,
           );
           if (
             sourceRed !== result.data[offset] ||
@@ -3415,9 +3451,10 @@ function fillContiguousRegion(
       ) {
         return;
       }
-      const oldGuideShare =
+      const inferredOldGuideShare =
         wall === null &&
-        (coverageByPaperFloorOnly || mask[pixelIndex] !== 1) &&
+        !wholePicture &&
+        maximumDistanceSquared < MAX_RGB_DISTANCE_SQUARED &&
         carriesUnevenColour
         ? localTargetShareAt(
           imageData.data,
@@ -3428,16 +3465,44 @@ function fillContiguousRegion(
           target,
         )
         : null;
+      // A selected ordinary edge is normally handled by its ink coverage. A
+      // deleted straight guide is the exception: its centre pixel is selected
+      // as a whole even though half still belongs to the already-painted face.
+      // Admit that exact half-share without making every selected colour ramp
+      // look like a former guide.
+      const oldGuideShare =
+        inferredOldGuideShare !== null &&
+        (
+          coverageByPaperFloorOnly ||
+          mask[pixelIndex] !== 1 ||
+          (coverage === 1 && Math.abs(inferredOldGuideShare - 0.5) <= 0.02)
+        )
+          ? inferredOldGuideShare
+          : null;
+
       if (oldGuideShare !== null) {
-        result.data[offset] = clampChannel(
-          sourceRed + oldGuideShare * (normalizedColor.r - target.red),
+        result.data[offset] = replaceLinearLightShare(
+          sourceRed, target.red, normalizedColor.r, oldGuideShare,
         );
-        result.data[offset + 1] = clampChannel(
-          sourceGreen + oldGuideShare * (normalizedColor.g - target.green),
+        result.data[offset + 1] = replaceLinearLightShare(
+          sourceGreen, target.green, normalizedColor.g, oldGuideShare,
         );
-        result.data[offset + 2] = clampChannel(
-          sourceBlue + oldGuideShare * (normalizedColor.b - target.blue),
+        result.data[offset + 2] = replaceLinearLightShare(
+          sourceBlue, target.blue, normalizedColor.b, oldGuideShare,
         );
+        // Replacing the last share of the paper with the same colour already
+        // on the other side should close the seam exactly. Conversion through
+        // linear light can miss by a level or two at a clipped channel; snap
+        // only that indistinguishable remainder to the flat fill.
+        if (
+          Math.max(
+            Math.abs(result.data[offset] - normalizedColor.r),
+            Math.abs(result.data[offset + 1] - normalizedColor.g),
+            Math.abs(result.data[offset + 2] - normalizedColor.b),
+          ) <= 2
+        ) {
+          result.data.set([normalizedColor.r, normalizedColor.g, normalizedColor.b], offset);
+        }
         if (
           sourceRed !== result.data[offset] ||
           sourceGreen !== result.data[offset + 1] ||
@@ -3516,18 +3581,31 @@ function fillContiguousRegion(
       // of it, and what darkens it is that other fill rather than ink, so its
       // share is the whole story. Wall pixels the line only passes beside are
       // ordinary pixels and keep the ink they carry.
-      const replacementWeight = wallCoverage !== -1 && wallCoverage < 1
-        ? coverage
-        : coverage * backgroundWeight;
-      result.data[offset] = clampChannel(
-        sourceRed + replacementWeight * (normalizedColor.r - target.red),
-      );
-      result.data[offset + 1] = clampChannel(
-        sourceGreen + replacementWeight * (normalizedColor.g - target.green),
-      );
-      result.data[offset + 2] = clampChannel(
-        sourceBlue + replacementWeight * (normalizedColor.b - target.blue),
-      );
+      if (wallCoverage !== -1 && wallCoverage < 1) {
+        // Encoded RGB averages complementary colours too dark. Replace the
+        // wall's share in linear light so colours of equal brightness keep that
+        // brightness where they meet.
+        result.data[offset] = replaceLinearLightShare(
+          sourceRed, target.red, normalizedColor.r, coverage,
+        );
+        result.data[offset + 1] = replaceLinearLightShare(
+          sourceGreen, target.green, normalizedColor.g, coverage,
+        );
+        result.data[offset + 2] = replaceLinearLightShare(
+          sourceBlue, target.blue, normalizedColor.b, coverage,
+        );
+      } else {
+        const replacementWeight = coverage * backgroundWeight;
+        result.data[offset] = clampChannel(
+          sourceRed + replacementWeight * (normalizedColor.r - target.red),
+        );
+        result.data[offset + 1] = clampChannel(
+          sourceGreen + replacementWeight * (normalizedColor.g - target.green),
+        );
+        result.data[offset + 2] = clampChannel(
+          sourceBlue + replacementWeight * (normalizedColor.b - target.blue),
+        );
+      }
     } else if (coverage === 1) {
       result.data[offset] = normalizedColor.r;
       result.data[offset + 1] = normalizedColor.g;
@@ -3559,9 +3637,15 @@ function fillContiguousRegion(
         : repaintingPaintedArea ? target.green : wall.paper[offset + 1];
       const replacedBlue = !knownPaper ? sourceBlue
         : repaintingPaintedArea ? target.blue : wall.paper[offset + 2];
-      result.data[offset] = clampChannel(sourceRed + coverage * (normalizedColor.r - replacedRed));
-      result.data[offset + 1] = clampChannel(sourceGreen + coverage * (normalizedColor.g - replacedGreen));
-      result.data[offset + 2] = clampChannel(sourceBlue + coverage * (normalizedColor.b - replacedBlue));
+      result.data[offset] = replaceLinearLightShare(
+        sourceRed, replacedRed, normalizedColor.r, coverage,
+      );
+      result.data[offset + 1] = replaceLinearLightShare(
+        sourceGreen, replacedGreen, normalizedColor.g, coverage,
+      );
+      result.data[offset + 2] = replaceLinearLightShare(
+        sourceBlue, replacedBlue, normalizedColor.b, coverage,
+      );
     } else if (!normalizedColor.hasExplicitAlpha && !fillingTransparency) {
       result.data[offset] = clampChannel(sourceRed * (1 - coverage) + normalizedColor.r * coverage);
       result.data[offset + 1] = clampChannel(sourceGreen * (1 - coverage) + normalizedColor.g * coverage);
