@@ -25,6 +25,14 @@ const PAPER_FLOOR_DISTANCE_SQUARED = 3
 // click never absorbs them merely because RGB distance reaches white first;
 // clicking the paper itself remains the explicit way to edit it.
 const PAPER_CHANNEL_FLOOR = 248;
+// A ground a drawing sits on is pale, whether it is the page itself or a panel
+// laid over it. Below this a colour is a face of its own.
+const PALE_CHANNEL_FLOOR = 200;
+// How far past a pixel to look before calling it the start of another flat
+// block. A shadow can fall as slowly as a level every pixel or two, so the next
+// pixel along says nothing; five of them apart, a slope has clearly moved on
+// and a block has clearly not.
+const SKIRT_FLAT_REACH = 5;
 // The drawing's own lines. Whatever colour a line is drawn in, none of its
 // channels is bright: every one of them is at least three quarters ink. That is
 // what tells a stroke apart from a face the user has painted, however dark the
@@ -729,6 +737,19 @@ function isWhiteBackground(target) {
   );
 }
 
+// Whether the clicked colour is a plain pale ground - a page, or a panel laid
+// on one - rather than a colour of its own. What is drawn on such a ground
+// casts its edges into it, and those edges belong to the ground: that is what
+// lets a fill walk down an antialiased skirt and stop on the crest of a stroke.
+// A darker colour is a face in its own right, and its neighbours' edges are not
+// its to absorb.
+function isPaleBackground(target) {
+  return (
+    target.alpha === CHANNEL_MAX &&
+    Math.min(target.red, target.green, target.blue) >= PALE_CHANNEL_FLOOR
+  );
+}
+
 function isPaperLikeTarget(target) {
   return (
     target.alpha === CHANNEL_MAX &&
@@ -786,19 +807,160 @@ function carriesFillAlready(red, green, blue, fill) {
   );
 }
 
-function lightBackgroundWeight(data, pixelIndex, target) {
+function hasFlatCompanion(data, width, height, pixelIndex) {
+  const pixelX = pixelIndex % width;
+  const pixelY = (pixelIndex - pixelX) / width;
+  for (let y = Math.max(0, pixelY - 1); y <= Math.min(height - 1, pixelY + 1); y += 1) {
+    for (let x = Math.max(0, pixelX - 1); x <= Math.min(width - 1, pixelX + 1); x += 1) {
+      const neighbor = y * width + x;
+      if (
+        neighbor !== pixelIndex &&
+        data[neighbor * 4 + 3] === data[pixelIndex * 4 + 3] &&
+        startsFlatRun(data, pixelIndex, neighbor)
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function isLightStrokeCore(data, width, height, pixelIndex, target) {
+  const offset = pixelIndex * 4;
+  const ownCoverage = Math.max(
+    target.red - data[offset],
+    target.green - data[offset + 1],
+    target.blue - data[offset + 2],
+  );
+  if (
+    data[offset + 3] !== target.alpha ||
+    Math.min(data[offset], data[offset + 1], data[offset + 2]) <=
+      INK_CHANNEL_FLOOR * CHANNEL_MAX ||
+    ownCoverage / CHANNEL_MAX < BACKGROUND_NOISE_COVERAGE ||
+    !hasFlatCompanion(data, width, height, pixelIndex)
+  ) {
+    return false;
+  }
+
+  const pixelX = pixelIndex % width;
+  const pixelY = (pixelIndex - pixelX) / width;
+  for (let y = Math.max(0, pixelY - 1); y <= Math.min(height - 1, pixelY + 1); y += 1) {
+    for (let x = Math.max(0, pixelX - 1); x <= Math.min(width - 1, pixelX + 1); x += 1) {
+      const neighborOffset = (y * width + x) * 4;
+      if (
+        Math.max(
+          target.red - data[neighborOffset],
+          target.green - data[neighborOffset + 1],
+          target.blue - data[neighborOffset + 2],
+        ) > ownCoverage
+      ) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+function hasNearbyLightStrokeCore(data, width, height, pixelIndex, target) {
+  const pixelX = pixelIndex % width;
+  const pixelY = (pixelIndex - pixelX) / width;
+  for (let y = Math.max(0, pixelY - 1); y <= Math.min(height - 1, pixelY + 1); y += 1) {
+    for (let x = Math.max(0, pixelX - 1); x <= Math.min(width - 1, pixelX + 1); x += 1) {
+      if (isLightStrokeCore(data, width, height, y * width + x, target)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function lightBackgroundWeight(
+  data,
+  width,
+  height,
+  pixelIndex,
+  target,
+  seekLightStroke,
+) {
   if (!isWhiteBackground(target)) {
     return null;
   }
 
   const offset = pixelIndex * 4;
-  const foregroundCoverage = Math.max(
-    channelForegroundCoverage(data[offset], target.red),
-    channelForegroundCoverage(data[offset + 1], target.green),
-    channelForegroundCoverage(data[offset + 2], target.blue),
-  );
+  const sourceAwayFromPaper = [
+    target.red - data[offset],
+    target.green - data[offset + 1],
+    target.blue - data[offset + 2],
+  ];
+  const foregroundCoverage = Math.max(...sourceAwayFromPaper) / CHANNEL_MAX;
+  const blackStrokeWeight = 1 - foregroundCoverage;
 
-  return 1 - foregroundCoverage;
+  // Range-selected pixels keep the established interpretation. Recover a pale
+  // local core only for pixels added by edge repair; otherwise a flat colour
+  // deliberately included by a wider range could be mistaken for an outline.
+  if (!seekLightStroke) {
+    return blackStrokeWeight;
+  }
+
+  const pixelX = pixelIndex % width;
+  const pixelY = (pixelIndex - pixelX) / width;
+  let deepestLength = 0;
+  let foregroundShare = -1;
+
+  // A pale solid outline is not a faint black line. Find its repeated local
+  // core and replace only the white share around it; the core itself then stays
+  // the colour it was drawn, even where a curve puts its pixels diagonally.
+  const left = Math.max(0, pixelX - EDGE_RAMP_REACH);
+  const right = Math.min(width - 1, pixelX + EDGE_RAMP_REACH);
+  const top = Math.max(0, pixelY - EDGE_RAMP_REACH);
+  const bottom = Math.min(height - 1, pixelY + EDGE_RAMP_REACH);
+  for (let y = top; y <= bottom; y += 1) {
+    for (let x = left; x <= right; x += 1) {
+      const candidate = y * width + x;
+      const candidateOffset = candidate * 4;
+      if (!isLightStrokeCore(data, width, height, candidate, target)) {
+        continue;
+      }
+
+      const candidateAwayFromPaper = [
+        target.red - data[candidateOffset],
+        target.green - data[candidateOffset + 1],
+        target.blue - data[candidateOffset + 2],
+      ];
+      const lengthSquared = candidateAwayFromPaper.reduce(
+        (sum, channel) => sum + channel * channel,
+        0,
+      );
+      if (
+        lengthSquared <= deepestLength ||
+        Math.max(...candidateAwayFromPaper) / CHANNEL_MAX < BACKGROUND_NOISE_COVERAGE
+      ) {
+        continue;
+      }
+
+      const share = sourceAwayFromPaper.reduce(
+        (sum, channel, index) => sum + channel * candidateAwayFromPaper[index],
+        0,
+      ) / lengthSquared;
+      if (share < 0 || share > 1) {
+        continue;
+      }
+      const error = sourceAwayFromPaper.reduce(
+        (sum, channel, index) => (
+          sum + (channel - share * candidateAwayFromPaper[index]) ** 2
+        ),
+        0,
+      );
+      if (error > FLAT_RUN_DISTANCE_SQUARED) {
+        continue;
+      }
+
+      deepestLength = lengthSquared;
+      foregroundShare = share;
+    }
+  }
+
+  return foregroundShare === -1 ? blackStrokeWeight : 1 - foregroundShare;
 }
 
 // Whether this pixel belongs to a face the fill is repainting, rather than to
@@ -1857,12 +2019,21 @@ function seedFractionAt(data, pixelIndex, target, packedBackground, contrast = E
   return Math.min(1, Math.max(0, (fraction - 0.5) * contrast + 0.5));
 }
 
+// How much of this pixel is something drawn on the ground rather than the
+// ground itself. Nothing is brighter than white, so on the page a reading in
+// either direction means the same thing; on a pale panel the page around it is
+// brighter, and counting that as ink would make the fill walk off the panel
+// and across the page instead of down the shadow cast onto it.
 function inkCoverageAt(data, pixelIndex, target) {
   const offset = pixelIndex * 4;
+  const brighterCounts = Math.min(target.red, target.green, target.blue) === CHANNEL_MAX;
+  const reading = (source, ground) => (brighterCounts || source <= ground
+    ? channelForegroundCoverage(source, ground)
+    : 0);
   return Math.max(
-    channelForegroundCoverage(data[offset], target.red),
-    channelForegroundCoverage(data[offset + 1], target.green),
-    channelForegroundCoverage(data[offset + 2], target.blue),
+    reading(data[offset], target.red),
+    reading(data[offset + 1], target.green),
+    reading(data[offset + 2], target.blue),
   );
 }
 
@@ -2018,7 +2189,15 @@ function reachRimToInk(data, width, height, region, target, barrier) {
     isWithinTolerance(data, pixelIndex, target, PAPER_FLOOR_DISTANCE_SQUARED);
 
   forEachSpanPixel(region.spans, width, (pixelIndex) => {
-    if (region.mask[pixelIndex] && depth[pixelIndex] === -1) {
+    // Value 2 is the crest of a stroke reached from this face. Starting a
+    // second rim walk there can step down the opposite skirt and leave
+    // detached dots outside a light outline. Original face pixels (1) and
+    // repaired paper (4) may still carry the walk forward on the same side.
+    if (
+      region.mask[pixelIndex] !== 0 &&
+      region.mask[pixelIndex] !== 2 &&
+      depth[pixelIndex] === -1
+    ) {
       depth[pixelIndex] = 0;
       parent[pixelIndex] = -1;
       pending.push(pixelIndex);
@@ -2041,7 +2220,14 @@ function reachRimToInk(data, width, height, region, target, barrier) {
         touchesInk = true;
         return;
       }
-      if (depth[neighbor] !== -1 || ownDepth >= RIM_REACH) {
+      if (
+        depth[neighbor] !== -1 ||
+        ownDepth >= RIM_REACH ||
+        (
+          ownDepth >= 1 &&
+          hasNearbyLightStrokeCore(data, width, height, neighbor, target)
+        )
+      ) {
         return;
       }
       depth[neighbor] = ownDepth + 1;
@@ -2062,7 +2248,10 @@ function reachRimToInk(data, width, height, region, target, barrier) {
   for (const anchor of anchored) {
     let pixelIndex = anchor;
     while (pixelIndex !== -1 && !region.mask[pixelIndex]) {
-      region.mask[pixelIndex] = 1;
+      // Value 4 keeps repaired paper distinct from pixels selected by the
+      // requested range. A pale outline beside it then stays an outline rather
+      // than being mistaken for another flat part of the face.
+      region.mask[pixelIndex] = 4;
       recordSpan(region.spans, pixelIndex, 1);
       region.count += 1;
       pixelIndex = parent[pixelIndex];
@@ -2614,7 +2803,11 @@ function claimWallEdge(data, width, height, region, seedPixel, maximumDistanceSq
 // the one it came from: that walks down the antialiased skirt of a stroke and
 // halts on its crest, so the fill reaches the line and never crosses it, and a
 // neighbouring flat face is never entered because it carries no more ink.
-function extendRegionToInk(data, width, height, region, target, barrier) {
+// A shadow falling across a ground gives up a level or two at a time. The edge
+// of a letter drops away all at once. `keepToTheGround` is that difference: the
+// walk follows a slope down but never steps off it onto something else, which
+// is what a walk with no such rule did to every glyph the fill ran up to.
+function extendRegionToInk(data, width, height, region, target, barrier, keepToTheGround = 0) {
   const pending = [];
 
   forEachSpanPixel(region.spans, width, (pixelIndex) => {
@@ -2640,12 +2833,41 @@ function extendRegionToInk(data, width, height, region, target, barrier) {
     const ownInk = inkCoverageAt(data, pixelIndex, target);
     const pixelX = pixelIndex % width;
 
-    const inspect = (neighbor, beyond) => {
+    // `beyond` is the next pixel on, which says whether a step down has landed
+    // on another flat block. `far` is several further still, which says whether
+    // a slope that has paused is still a slope.
+    const inspect = (neighbor, beyond, far) => {
       if (
         region.mask[neighbor] ||
         isWalledOff(barrier, neighbor) ||
-        data[neighbor * 4 + 3] !== target.alpha ||
-        inkCoverageAt(data, neighbor, target) <= ownInk
+        data[neighbor * 4 + 3] !== target.alpha
+      ) {
+        return;
+      }
+
+      // A shadow cast across a pale ground can give up a level only every
+      // pixel or two, so a skirt walk that insists on darker at every step
+      // stops at the first pair that matches and leaves a pale ring behind.
+      // Standing still carries the walk on only where the walk is already on a
+      // skirt and the ground goes on falling further out.
+      if (keepToTheGround !== 0) {
+        const there = pixelIndex * 4;
+        const here = neighbor * 4;
+        const red = data[here] - data[there];
+        const green = data[here + 1] - data[there + 1];
+        const blue = data[here + 2] - data[there + 2];
+        if (red * red + green * green + blue * blue > keepToTheGround) {
+          return;
+        }
+      }
+
+      const reading = inkCoverageAt(data, neighbor, target);
+      if (reading < ownInk) {
+        return;
+      }
+      if (
+        reading === ownInk &&
+        !(reading > 0 && far !== -1 && inkCoverageAt(data, far, target) > reading)
       ) {
         return;
       }
@@ -2670,20 +2892,34 @@ function extendRegionToInk(data, width, height, region, target, barrier) {
       pending.push(neighbor);
     };
 
+    const reach = SKIRT_FLAT_REACH;
     if (pixelIndex >= width) {
-      inspect(pixelIndex - width, pixelIndex >= 2 * width ? pixelIndex - 2 * width : -1);
+      inspect(
+        pixelIndex - width,
+        pixelIndex >= 2 * width ? pixelIndex - 2 * width : -1,
+        pixelIndex >= reach * width ? pixelIndex - reach * width : -1,
+      );
     }
     if (pixelX + 1 < width) {
-      inspect(pixelIndex + 1, pixelX + 2 < width ? pixelIndex + 2 : -1);
+      inspect(
+        pixelIndex + 1,
+        pixelX + 2 < width ? pixelIndex + 2 : -1,
+        pixelX + reach < width ? pixelIndex + reach : -1,
+      );
     }
     if (pixelIndex + width < width * height) {
       inspect(
         pixelIndex + width,
         pixelIndex + 2 * width < width * height ? pixelIndex + 2 * width : -1,
+        pixelIndex + reach * width < width * height ? pixelIndex + reach * width : -1,
       );
     }
     if (pixelX > 0) {
-      inspect(pixelIndex - 1, pixelX > 1 ? pixelIndex - 2 : -1);
+      inspect(
+        pixelIndex - 1,
+        pixelX > 1 ? pixelIndex - 2 : -1,
+        pixelX >= reach ? pixelIndex - reach : -1,
+      );
     }
   }
 
@@ -2768,6 +3004,26 @@ function collectContiguousRegion(
   const pending = [firstPixel];
   const spans = recordVisitedSpans ? createSpanStream() : null;
   let visitedCount = 0;
+  // Same colour, reached without crossing an edge. A face can shade away from
+  // the colour that was clicked - a shadow falls across it - and the range is
+  // what says how far that may go. But a step from one pixel to the next that
+  // is itself the whole width of the range is not shading: it is where one
+  // thing ends and another begins, and the two may happen to lie within the
+  // range of each other all the same.
+  const noStepOver = (from, to) => {
+    const there = from * 4;
+    const here = to * 4;
+    // Nothing has no colour. What is stored behind a fully transparent pixel is
+    // whatever was last there, so a step to or from one says nothing at all.
+    if (data[there + 3] === 0 || data[here + 3] === 0) {
+      return true;
+    }
+    const red = data[here] - data[there];
+    const green = data[here + 1] - data[there + 1];
+    const blue = data[here + 2] - data[there + 2];
+    return red * red + green * green + blue * blue <= maximumDistanceSquared;
+  };
+
   const belongs = (pixelIndex) => {
     const alpha = data[pixelIndex * 4 + 3];
     return (
@@ -2935,11 +3191,13 @@ function collectContiguousRegion(
     let left = pixelX;
     let right = pixelX;
 
-    while (left > 0 && !visited[rowStart + left - 1] && belongs(rowStart + left - 1)) {
+    while (left > 0 && !visited[rowStart + left - 1] && belongs(rowStart + left - 1)
+      && noStepOver(rowStart + left, rowStart + left - 1)) {
       left -= 1;
     }
 
-    while (right + 1 < width && !visited[rowStart + right + 1] && belongs(rowStart + right + 1)) {
+    while (right + 1 < width && !visited[rowStart + right + 1] && belongs(rowStart + right + 1)
+      && noStepOver(rowStart + right, rowStart + right + 1)) {
       right += 1;
     }
 
@@ -2955,7 +3213,8 @@ function collectContiguousRegion(
 
       if (pixelY > 0) {
         const upperPixel = currentPixel - width;
-        const upperMatches = !visited[upperPixel] && belongs(upperPixel);
+        const upperMatches = !visited[upperPixel] && belongs(upperPixel)
+          && noStepOver(currentPixel, upperPixel);
         if (upperMatches && !upperSpanQueued) {
           pending.push(upperPixel);
         } else if (!upperMatches && barrier !== null) {
@@ -2966,7 +3225,8 @@ function collectContiguousRegion(
 
       if (pixelY + 1 < height) {
         const lowerPixel = currentPixel + width;
-        const lowerMatches = !visited[lowerPixel] && belongs(lowerPixel);
+        const lowerMatches = !visited[lowerPixel] && belongs(lowerPixel)
+          && noStepOver(currentPixel, lowerPixel);
         if (lowerMatches && !lowerSpanQueued) {
           pending.push(lowerPixel);
         } else if (!lowerMatches && barrier !== null) {
@@ -3060,6 +3320,24 @@ function walkContiguousRegion(
   );
   let selectedCount = fullRegion.count;
   const whitePaper = protectDrawing && isWhiteBackground(target);
+  // A panel laid on the page is a ground too, and what is drawn on it casts its
+  // edges into it. Only that one pass is shared: how an edge is rebuilt, and
+  // what counts as a pocket, are the page's own questions and stay with it.
+  //
+  // A ground is something a drawing sits on, which means there has to be some
+  // of it: a stray pale pixel between two strokes is not a panel, and walking
+  // out of one would only swallow the strokes either side. Asked for the whole
+  // picture, every face is already in hand and there is nothing to walk to.
+  const paleGround = protectDrawing && !whitePaper && !wholePicture
+    && isPaleBackground(target);
+
+  if (paleGround && fullRegion.count >= MIN_PLATEAU_PIXELS) {
+    extendRegionToInk(
+      data, width, height, fullRegion, target, barrier,
+      Math.max(maximumDistanceSquared, 1),
+    );
+    selectedCount = fullRegion.count;
+  }
 
   if (whitePaper) {
     fillEnclosedPockets(data, width, height, fullRegion, target, barrier);
@@ -3577,8 +3855,57 @@ function fillContiguousRegion(
       sourceAlpha === CHANNEL_MAX &&
       (!normalizedColor.hasExplicitAlpha || normalizedColor.a === CHANNEL_MAX);
     const backgroundWeight = canPreserveWhiteAntialiasing
-      ? lightBackgroundWeight(imageData.data, pixelIndex, target)
+      ? lightBackgroundWeight(
+        imageData.data,
+        imageData.width,
+        imageData.height,
+        pixelIndex,
+        target,
+        mask[pixelIndex] !== 1,
+      )
       : null;
+    const blackStrokeBackgroundWeight = backgroundWeight === null
+      ? null
+      : 1 - Math.max(
+        channelForegroundCoverage(sourceRed, target.red),
+        channelForegroundCoverage(sourceGreen, target.green),
+        channelForegroundCoverage(sourceBlue, target.blue),
+      );
+    const lightOutlinePixel =
+      backgroundWeight !== null &&
+      mask[pixelIndex] !== 1 &&
+      backgroundWeight < blackStrokeBackgroundWeight - 1e-9;
+    let touchesSelectedFace = false;
+    if (lightOutlinePixel) {
+      for (
+        let nearbyY = Math.max(0, pixelY - 1);
+        nearbyY <= Math.min(imageData.height - 1, pixelY + 1);
+        nearbyY += 1
+      ) {
+        for (
+          let nearbyX = Math.max(0, pixelX - 1);
+          nearbyX <= Math.min(imageData.width - 1, pixelX + 1);
+          nearbyX += 1
+        ) {
+          if (mask[nearbyY * imageData.width + nearbyX] === 1) {
+            touchesSelectedFace = true;
+          }
+        }
+      }
+    }
+
+    // A pale solid outline and its outside ramp keep their original colour.
+    // Only the ramp touching the range-selected face receives the new
+    // background, which closes the inside without growing a fringe outside.
+    if (
+      lightOutlinePixel &&
+      (
+        backgroundWeight < BACKGROUND_NOISE_COVERAGE ||
+        !touchesSelectedFace
+      )
+    ) {
+      return;
+    }
 
     if (backgroundWeight !== null) {
       // With white and black included, a line has no say of its own. Where the
@@ -3712,6 +4039,7 @@ function fillContiguousRegion(
       // fill, is the same story from the other end - there is no paper left to
       // swap.
       const repaintingFace =
+        !lightOutlinePixel &&
         inkCoverage >= BACKGROUND_NOISE_COVERAGE &&
         facePainted(
           imageData.data,
@@ -3740,6 +4068,7 @@ function fillContiguousRegion(
       }
 
       if (
+        !lightOutlinePixel &&
         coverage === 1 &&
         isolatedSpeck(
           imageData.data,
