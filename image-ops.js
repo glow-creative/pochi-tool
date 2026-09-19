@@ -59,6 +59,10 @@ const RIM_REACH = 3;
 // colour and its background a pixel may sit before it stops counting as part
 // of that ramp.
 const EDGE_RAMP_REACH = 6;
+// How much darker than the pixel beside the area a crest has to be before the
+// two are read as the skirt of a stroke rather than one face shading into the
+// next. A stroke drawn in any colour is well clear of what it is drawn on.
+const EDGE_CREST_DROP = 40;
 const EDGE_OFF_LINE_DISTANCE_SQUARED = 40 * 40;
 // A pair of soft shape edges can miss one another by a pixel at a tight join.
 // Only bridge a very short nick: a longer white seam is part of the drawing.
@@ -1811,6 +1815,7 @@ function collectEdgeRamp(
     const localTarget = targetFromPackedRgb(localForeground, target.alpha);
     const ownDistance = seedDistanceSquaredAt(data, pixelIndex, localTarget);
     const pixelX = pixelIndex % width;
+    let climbed = false;
 
     const inspect = (neighbor, beyond) => {
       if (
@@ -1839,6 +1844,7 @@ function collectEdgeRamp(
         return;
       }
 
+      climbed = true;
       edge.setDepth(neighbor, ownDepth + 1);
       edge.setParent(neighbor, pixelIndex);
       edge.setForeground(neighbor, localForeground);
@@ -1862,6 +1868,20 @@ function collectEdgeRamp(
     }
     if (pixelX > 0) {
       inspect(pixelIndex - 1, pixelX > 1 ? pixelIndex - 2 : -1);
+    }
+
+    // A stroke drawn small and soft has no flat core to settle on: it is all
+    // slope, darkest for a pixel or two and then climbing away again. Where the
+    // slope stops climbing, that pixel is the crest, and the crest is what the
+    // edge was drawn against. Without this the whole ramp keeps the colour it
+    // had, which reads as a ring of the old colour left round the new one.
+    if (
+      !climbed &&
+      ownDepth >= 3 &&
+      ownDistance > PAPER_FLOOR_DISTANCE_SQUARED &&
+      edge.getBackground(pixelIndex) === -1
+    ) {
+      settle(pixelIndex, pixelIndex, localForeground);
     }
   }
 
@@ -1899,7 +1919,20 @@ function collectEdgeRamp(
         continue;
       }
 
+      // Lending reaches one pixel further than the walk, which is enough to
+      // step onto the edge of a stroke this press never touched: a lone pixel
+      // then comes out tinted with nothing painted beside it. What is lent to
+      // has to touch the area itself.
       const pixelX = pixelIndex % width;
+      const besideTheArea =
+        (pixelIndex >= width && region.mask[pixelIndex - width]) ||
+        (pixelX + 1 < width && region.mask[pixelIndex + 1]) ||
+        (pixelIndex + width < pixelCount && region.mask[pixelIndex + width]) ||
+        (pixelX > 0 && region.mask[pixelIndex - 1]);
+      if (!besideTheArea) {
+        continue;
+      }
+
       let lender = -1;
       if (pixelIndex >= width && edge.getBackground(pixelIndex - width) !== -1) lender = pixelIndex - width;
       else if (pixelX + 1 < width && edge.getBackground(pixelIndex + 1) !== -1) lender = pixelIndex + 1;
@@ -1951,6 +1984,100 @@ function collectEdgeRamp(
     }
   }
 
+  // A pixel right against the area, still holding some of the colour being
+  // replaced, is what reads as a rim of the old colour once the area around it
+  // has changed. Whatever the walk above did or did not reach, such a pixel can
+  // say for itself what it is a blend of: the colour being replaced on one
+  // side, and whatever its neighbours are furthest towards on the other. Asking
+  // each pixel rather than following a walk also keeps the answer steady, since
+  // a wider range moves where the walk goes but not what a pixel is made of.
+  const rim = [];
+  forEachSpanPixel(region.spans, width, (pixelIndex) => {
+    if (!region.mask[pixelIndex]) {
+      return;
+    }
+    const pixelX = pixelIndex % width;
+    // `beyond` is the next pixel on the same way out. A colour that carries on
+    // unchanged there is a face of its own, standing outside the range because
+    // it was meant to; only a blend on its way from one colour to another is
+    // this area's edge to settle.
+    const look = (neighbor, beyond) => {
+      if (
+        region.mask[neighbor] ||
+        beyond === -1 ||
+        startsFlatRun(data, neighbor, beyond) ||
+        edge.getBackground(neighbor) !== -1 ||
+        isWalledOff(barrier, neighbor) ||
+        data[neighbor * 4 + 3] !== target.alpha ||
+        isDrawnInk(data, neighbor) ||
+        seedDistanceSquaredAt(data, neighbor, target) <= PAPER_FLOOR_DISTANCE_SQUARED
+      ) {
+        return;
+      }
+      // Carry on the same way out, looking for a stroke: somewhere along there
+      // the picture has to get darker and then stop getting darker. That crest
+      // is what the edge was drawn against. Where instead one face simply
+      // shades into another, with nothing dark in between, there is no stroke
+      // here and no edge of this area's to settle - the range's answer stands.
+      let against = -1;
+      let darkest = lightnessAt(data, neighbor);
+      let at = neighbor;
+      for (let step = 1; step < EDGE_RAMP_REACH; step += 1) {
+        const nextX = (neighbor % width) + (neighbor - pixelIndex === 1 ? step
+          : neighbor - pixelIndex === -1 ? -step : 0);
+        const nextY = ((neighbor - (neighbor % width)) / width)
+          + (neighbor - pixelIndex === width ? step
+            : neighbor - pixelIndex === -width ? -step : 0);
+        if (nextX < 0 || nextY < 0 || nextX >= width || nextY >= height) {
+          break;
+        }
+        at = nextY * width + nextX;
+        if (data[at * 4 + 3] !== target.alpha) {
+          break;
+        }
+        const level = lightnessAt(data, at);
+        if (level < darkest) {
+          darkest = level;
+          against = at;
+        } else if (against !== -1) {
+          break;
+        }
+      }
+      if (against === -1 || lightnessAt(data, neighbor) - darkest < EDGE_CREST_DROP) {
+        return;
+      }
+      rim.push([neighbor, packedRgbAt(data, against)]);
+    };
+    if (pixelIndex >= width) {
+      look(pixelIndex - width, pixelIndex >= 2 * width ? pixelIndex - 2 * width : -1);
+    }
+    if (pixelX + 1 < width) {
+      look(pixelIndex + 1, pixelX + 2 < width ? pixelIndex + 2 : -1);
+    }
+    if (pixelIndex + width < pixelCount) {
+      look(
+        pixelIndex + width,
+        pixelIndex + 2 * width < pixelCount ? pixelIndex + 2 * width : -1,
+      );
+    }
+    if (pixelX > 0) {
+      look(pixelIndex - 1, pixelX > 1 ? pixelIndex - 2 : -1);
+    }
+  });
+
+  for (const [pixelIndex, packedBackground] of rim) {
+    if (region.mask[pixelIndex] || edge.getBackground(pixelIndex) !== -1) {
+      continue;
+    }
+    const fraction = seedFractionAt(data, pixelIndex, target, packedBackground);
+    if (fraction <= 0) {
+      continue;
+    }
+    edge.setBackground(pixelIndex, packedBackground);
+    edge.setForeground(pixelIndex, (target.red << 16) | (target.green << 8) | target.blue);
+    added.push(pixelIndex);
+  }
+
   for (const pixelIndex of added) {
     if (edge.getBackground(pixelIndex) === -1 || region.mask[pixelIndex]) {
       continue;
@@ -1983,6 +2110,12 @@ function collectEdgeRamp(
 // `contrast` says how hard to pull the share away from the middle: laying a new
 // colour down wants the edge tightened towards the crispness of the line art
 // around it, and a cut-out wants it left exactly where the drawing put it.
+// How light a pixel reads, for telling a stroke from a shading.
+function lightnessAt(data, pixelIndex) {
+  const offset = pixelIndex * 4;
+  return Math.max(data[offset], data[offset + 1], data[offset + 2]);
+}
+
 function seedFractionAt(data, pixelIndex, target, packedBackground, contrast = EDGE_CONTRAST) {
   const backRed = (packedBackground >> 16) & 0xff;
   const backGreen = (packedBackground >> 8) & 0xff;
