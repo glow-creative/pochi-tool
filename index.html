@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="google-site-verification" content="iIkU57KdJRv2CRBYrdL83iIO2geCoJlAaylwr8ur41Y" />
+    <title>ポチツール｜イラストの透過・色変更をかんたんに</title>
+    <link rel="canonical" href="https://glow-creative.github.io/pochi-tool/" />
+    <meta
+      name="description"
+      content="イラストや画像の透過・色変更を、ブラウザで手軽に。登録不要・無料で使える画像編集ツール。"
+    />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="ポチツール｜イラストの透過・色変更をかんたんに" />
+    <meta
+      property="og:description"
+      content="イラストや画像の透過・色変更を、ブラウザで手軽に。登録不要・無料で使える画像編集ツール。"
+    />
+    <meta property="og:url" content="https://glow-creative.github.io/pochi-tool/" />
+    <meta property="og:image" content="https://glow-creative.github.io/pochi-tool/pochi-og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="ポチツール｜イラストの透過・色変更をかんたんに" />
+    <meta property="og:locale" content="ja_JP" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="ポチツール｜イラストの透過・色変更をかんたんに" />
+    <meta
+      name="twitter:description"
+      content="イラストや画像の透過・色変更を、ブラウザで手軽に。登録不要・無料で使える画像編集ツール。"
+    />
+    <meta name="twitter:image" content="https://glow-creative.github.io/pochi-tool/pochi-og.png" />
+    <meta name="twitter:image:alt" content="ポチツール｜イラストの透過・色変更をかんたんに" />
+
+    <link rel="icon" href="pochi-logo.png" />
+    <link rel="apple-touch-icon" href="pochi-logo.png" />
+    <link rel="stylesheet" href="styles.css?v=20260920-guide-boundary" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="app-header">
+        <div class="brand">
+          <img class="brand-mark" src="pochi-logo.png" width="270" height="270" alt="" />
+          <span class="brand-copy">
+            <strong>ポチツール</strong>
+            <small>同じ色だけ、消す・塗る。</small>
+          </span>
+        </div>
+
+        <div class="document-name" id="documentName">
+          <span class="document-dot"></span>
+          <span class="document-name-full">画像を選んで始める</span>
+          <span class="document-name-compact">編集中</span>
+        </div>
+
+        <div class="header-actions">
+          <button class="button button-secondary" id="openButton" type="button" aria-label="画像を選ぶ">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" /></svg>
+            <span>画像を選ぶ</span>
+          </button>
+          <button class="button button-primary" id="exportButton" type="button" aria-label="PNGで保存" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v12m0 0 4.5-4.5M12 16l-4.5-4.5M5 18v2h14v-2" /></svg>
+            <span>PNGで保存</span>
+          </button>
+        </div>
+      </header>
+
+      <div class="app-body">
+        <aside class="side-panel" aria-label="編集ツール" tabindex="-1">
+          <section class="panel-section tool-section">
+            <div class="tool-list" role="radiogroup" aria-label="ツールを選択">
+              <button class="tool-card" type="button" data-tool="eraser" role="radio" aria-checked="false">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15.5 4.5 4 4a2 2 0 0 1 0 2.8l-7.7 7.7H6.4l-2-2a2 2 0 0 1 0-2.8l8.3-9.7a2 2 0 0 1 2.8 0Z" /><path d="m9 9 6 6M11.8 19H20" /></svg>
+                <span>消しゴム</span>
+                <kbd>E</kbd>
+              </button>
+
+              <button class="tool-card" type="button" data-tool="bucket" role="radio" aria-checked="false">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5.2 12.5 7.6-7.6 6.3 6.3-7.6 7.6a2 2 0 0 1-2.8 0l-3.5-3.5a2 2 0 0 1 0-2.8Z" /><path d="m9.5 8.2 6.3 6.3M19 15.5s2 2.1 2 3.5a2 2 0 0 1-4 0c0-1.4 2-3.5 2-3.5Z" /></svg>
+                <span>バケツ</span>
+                <kbd>B</kbd>
+              </button>
+
+              <button class="tool-card" type="button" data-tool="guide" role="radio" aria-checked="false">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5.5" cy="18.5" r="2.3" /><circle cx="18.5" cy="5.5" r="2.3" /><path d="M7.1 16.9 16.9 7.1" /></svg>
+                <span>区切り線</span>
+                <kbd>G</kbd>
+              </button>
+            </div>
+            <div class="tool-speech" id="toolSpeech" data-tool="eraser">
+              <span class="tool-speech-copy" id="toolSpeechText" aria-live="polite">透過できます</span>
+              <div class="guide-actions is-hidden" id="guideActions" aria-label="区切り線の操作">
+                <button class="guide-action" id="newGuideButton" type="button" title="現在の線を終えて、別の位置から新しい線を描きます">＋ 新しい線</button>
+                <button class="guide-action" id="erasePointButton" type="button" aria-pressed="false" title="選択中の点を消し、続けてタップした点も消します。もう一度押すと解除します">1点消す</button>
+                <button class="guide-action" id="clearGuidesButton" type="button" aria-label="区切り線をすべて消す" title="区切り線をすべて消します。元に戻すこともできます">すべて消す</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel-section settings-section" id="settingsSection" aria-disabled="true">
+            <div class="section-heading">
+              <span>色の許容範囲</span>
+              <span class="reapply-spinner" id="reapplySpinner" aria-hidden="true" hidden></span>
+              <input id="toleranceValue" class="value-field" type="number" min="0" max="100" step="1" value="50" aria-label="色の許容範囲の数値" title="数字を打ち込むか、矢印キーで増減できます" disabled />
+            </div>
+            <input id="toleranceSlider" class="range" type="range" min="0" max="100" value="50" aria-label="色の許容範囲" title="値を上げると近い色合いもまとめて選びます。編集の直後に動かすと、その編集をやり直します" disabled />
+            <div class="toggle-row">
+              <label class="include-toggle" for="includeWhiteBlackToggle" title="色のついた場所をクリックしたときも、白い紙や黒い線を許容範囲に含めます">
+                <input id="includeWhiteBlackToggle" type="checkbox" disabled />
+                <span>白と黒も含める</span>
+              </label>
+            </div>
+            <div class="scope-toggle" role="radiogroup" aria-label="選ぶ範囲">
+              <label for="connectedAreaRadio">
+                <input id="connectedAreaRadio" type="radio" name="selectionScope" checked disabled />
+                <span>つながった所</span>
+              </label>
+              <label for="wholePictureToggle">
+                <input id="wholePictureToggle" type="radio" name="selectionScope" disabled />
+                <span>画像全体</span>
+              </label>
+            </div>
+          </section>
+
+          <section class="panel-section color-section" id="colorSection" aria-disabled="true" inert>
+            <div class="section-heading">
+              <span>塗り色</span>
+              <span class="color-control">
+                <label class="color-chip" for="colorPicker" title="自由な色を選ぶ">
+                  <span class="color-preview" id="colorPreview"></span>
+                  <input id="colorPicker" type="color" value="#ff7628" aria-label="自由な塗り色を選ぶ" disabled />
+                </label>
+                <input id="colorHex" class="color-hex" type="text" value="#FF7628" maxlength="7" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="塗り色のカラーコード" title="#RRGGBB のカラーコードを打ち込めます" disabled />
+              </span>
+            </div>
+            <div class="recent-colors">
+              <strong class="recent-heading" id="recentColorsTitle">最近使った色</strong>
+              <div class="recent-swatches" id="recentSwatches" role="group" aria-labelledby="recentColorsTitle"></div>
+            </div>
+            <div class="preset-palette" role="group" aria-label="プリセットカラー">
+              <span id="paletteDescription" hidden></span>
+              <div class="palette-tabs" role="tablist" aria-label="カラーパレット">
+                <button class="palette-tab is-active" id="dadsPaletteTab" type="button" role="tab" aria-selected="true" aria-controls="dadsPalette" title="デジタル庁デザインシステムのカラーパレット"><span>DADS</span></button>
+                <button class="palette-tab" id="uswdsPaletteTab" type="button" role="tab" aria-selected="false" aria-controls="uswdsPalette" title="U.S. Web Design Systemのカラーパレット"><span>USWDS</span></button>
+              </div>
+              <div class="palette-families" id="dadsPalette" role="tabpanel" aria-labelledby="dadsPaletteTab">
+                <p class="palette-credit"><a href="https://design.digital.go.jp/dads/" target="_blank" rel="noopener noreferrer">デジタル庁デザインシステムウェブサイト<svg class="new-tab-icon" viewBox="0 0 24 24" role="img" aria-label="新しいタブを開きます"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" /></svg></a><span>のコンテンツを加工して作成</span></p>
+              </div>
+              <div class="palette-families is-hidden" id="uswdsPalette" role="tabpanel" aria-labelledby="uswdsPaletteTab">
+                <p class="palette-credit"><a href="https://designsystem.digital.gov/" target="_blank" rel="noopener noreferrer">U.S. Web Design Systemウェブサイト<svg class="new-tab-icon" viewBox="0 0 24 24" role="img" aria-label="新しいタブを開きます"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" /></svg></a><span>のコンテンツを加工して作成</span></p>
+              </div>
+            </div>
+          </section>
+
+        </aside>
+
+        <main class="workspace">
+          <div class="workspace-topbar">
+            <div class="workspace-controls" aria-label="編集とズーム操作">
+              <div class="history-actions" aria-label="編集履歴">
+                <button class="zoom-button" id="undoButton" type="button" disabled aria-label="元に戻す" title="元に戻す">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7 4 12l5 5M5 12h8a6 6 0 0 1 6 6" /></svg>
+                </button>
+                <span class="history-divider" aria-hidden="true"></span>
+                <button class="zoom-button" id="redoButton" type="button" disabled aria-label="やり直す" title="やり直す">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 7 5 5-5 5m4-5h-8a6 6 0 0 0-6 6" /></svg>
+                </button>
+                <span class="history-divider" aria-hidden="true"></span>
+                <button class="zoom-button" id="resetButton" type="button" disabled aria-label="最初に戻す" title="開いたときの画像に戻します。区切り線はそのままです">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 13.7a7 7 0 1 0 2.1-5M5 5.7v4h4" /></svg>
+                </button>
+              </div>
+              <div class="zoom-controls" id="zoomControls" aria-label="ズーム操作">
+                <button class="zoom-button" id="zoomOutButton" type="button" disabled aria-label="縮小" title="縮小（− / ⌘・Ctrl＋ホイール）">
+                  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8h9" /></svg>
+                </button>
+                <button class="zoom-value" id="fitButton" type="button" disabled aria-label="画面に合わせる" title="画面に合わせる（0）">100%</button>
+                <button class="zoom-button" id="zoomInButton" type="button" disabled aria-label="拡大" title="拡大（＋ / ⌘・Ctrl＋ホイール）">
+                  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8h9M8 3.5v9" /></svg>
+                </button>
+              </div>
+            </div>
+            <p class="guide-help-line" id="guideHelpText" hidden>
+              <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.25" /><path d="M10 8.5v5M10 6.2v.1" /></svg>
+              <span class="guide-help-full"><strong><span class="word-pointer">クリック</span><span class="word-touch">タップ</span></strong>｜点を置く・線をつなぐ　　<span class="guide-help-mouse"><strong>ダブルクリック</strong>｜角の形を変える　　</span><strong>ドラッグ</strong>｜点を移動</span>
+              <span class="guide-help-short"><span class="guide-help-item"><strong><span class="word-pointer">クリック</span><span class="word-touch">タップ</span></strong>｜点を置く・つなぐ</span><span class="guide-help-item guide-help-mouse"><strong>ダブルクリック</strong>｜角の形</span><span class="guide-help-item"><strong>ドラッグ</strong>｜移動</span></span>
+              <button class="guide-help-action" id="cornerPointButton" type="button" aria-pressed="false" aria-label="区切り線の角の形を切り替える" title="選択中の点の角の形を変え、続けてタップした点も切り替えます。もう一度押すと解除します">角の形を変える</button>
+            </p>
+            <div class="canvas-meta" id="canvasMeta" aria-label="キャンバスサイズ">
+              <span class="meta-chip">サイズ</span>
+              <span id="canvasSize">画像未選択</span>
+            </div>
+          </div>
+
+          <div class="canvas-viewport" id="canvasViewport">
+            <div class="empty-state" id="emptyState">
+              <img class="empty-decor" id="emptyDecor" src="pochi-art.png" width="332" height="252" alt="" hidden />
+              <img class="empty-illustration" src="pochi-mouse.png" width="740" height="840" alt="" />
+              <div class="empty-copy">
+                <h2><span>同じ色だけ<span class="hanging-punct">、</span></span><br /><span><span class="hanging-digit">１</span>クリックで 消す・塗る<span class="hanging-punct">。</span></span></h2>
+                <p><span>画像をドロップするか、</span><span>下のボタンから選んでください<span class="hanging-punct">。</span></span></p>
+                <button class="button button-empty" id="emptyOpenButton" type="button">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" /></svg>
+                  画像を選ぶ
+                </button>
+              </div>
+            </div>
+
+            <div class="canvas-stage is-hidden" id="canvasStage">
+              <div class="canvas-frame" id="canvasFrame">
+                <canvas id="editorCanvas" aria-label="編集キャンバス"></canvas>
+                <svg id="guideCanvas" class="guide-overlay" aria-hidden="true"></svg>
+                <span class="edit-marker is-hidden" id="editMarker" aria-hidden="true"></span>
+              </div>
+            </div>
+
+            <div class="drop-overlay" id="dropOverlay" aria-hidden="true">
+              <div>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" /></svg>
+                <strong>ここにドロップ</strong>
+                <span>新しい画像を開きます</span>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp" hidden />
+    <div class="swatch-tooltip" id="swatchTooltip" role="tooltip" hidden></div>
+    <div class="toast" id="toast" aria-hidden="true">
+      <span class="toast-label" id="toastLabel" hidden>エラー</span>
+      <span class="toast-message" id="toastMessage" role="status" aria-live="polite" aria-atomic="true"></span>
+      <button class="toast-dismiss" id="toastDismissButton" type="button" aria-label="エラーメッセージを閉じる" hidden>×</button>
+    </div>
+
+    <script src="image-ops.js?v=20260926-settled-backdrop"></script>
+    <script src="app.js?v=20260926-whole-edge"></script>
+
+    <!-- Cloudflare Web Analytics -->
+    <script
+      type="module"
+      src="https://static.cloudflareinsights.com/beacon.min.js"
+      data-cf-beacon='{"token": "04fcc14ecdb84758b1a1a85318a16e65"}'
+    ></script>
+  </body>
+</html>
