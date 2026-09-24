@@ -1,0 +1,1586 @@
+:root {
+  color-scheme: light;
+  /* Every colour is a named colour from USWDS or the Digital Agency Design
+     System (DADS), noted beside it. */
+  --white: #ffffff; /* DADS white */
+  --gray-5: #f0f0ec; /* USWDS gray-warm-5 */
+  --gray-10: #e6e6e2; /* USWDS gray-warm-10 */
+  --gray-20: #cac9c0; /* USWDS gray-warm-20 */
+  --gray-50: #76766a; /* USWDS gray-warm-50 */
+  --gray-60: #5d5d52; /* USWDS gray-warm-60 */
+  --gray-70: #454540; /* USWDS gray-warm-70 */
+  --gray-80: #2e2e2a; /* USWDS gray-warm-80 */
+  --primary: #005ea2; /* USWDS blue-60v, the theme's primary */
+  --primary-dark: #1a4480; /* USWDS blue-warm-70v, primary-dark */
+  --primary-darker: #162e51; /* USWDS blue-warm-80v, primary-darker */
+  --error: #d54309; /* USWDS red-warm-50v */
+  --error-deep: #3d231d; /* USWDS orange-warm-80v */
+  --error-soft: #f7bbb1; /* USWDS red-20 */
+  --guide-text: #783cb9; /* USWDS violet-60v */
+  --focus-outline: #000000; /* DADS black */
+  --focus-field: #2491ff; /* USWDS blue-40v, the USWDS focus colour */
+  --disabled-bg: #b3b3b3; /* DADS solid-gray-300 */
+  --disabled-text: #f2f2f2; /* DADS solid-gray-50 */
+  --credit-text: #666666; /* DADS solid-gray-600 */
+  --ink: var(--gray-80);
+  --muted: var(--gray-60);
+  --line: var(--gray-10);
+  --surface: var(--white);
+  --canvas-bg: var(--gray-5);
+  --disabled: 0.45;
+  /* One scale for every gap, and one gutter for every edge of the screen. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --gutter: var(--space-4);
+  font-family: "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", Meiryo, sans-serif;
+  font-synthesis: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  min-width: 720px;
+  height: 100%;
+  margin: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior: none;
+  /* A quick second tap on a button is a second press, not a zoom. */
+  touch-action: manipulation;
+  background: var(--canvas-bg);
+  color: var(--ink);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  color: inherit;
+}
+
+/* One thin black line, set apart by a gap: calm rather than a warning, and it
+   stays clear on a light panel, the dark tool in hand, the blue button and a
+   row of blue swatches alike. */
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--focus-outline);
+  outline-offset: 2px;
+}
+
+/* A box being typed into already shows where the typing goes, and a click puts
+   it in focus as surely as the keyboard does, so it takes a line on its own
+   border instead of a ring set apart: the USWDS focus colour. */
+.value-field:focus-visible,
+.color-hex:focus-visible {
+  outline: 2px solid var(--focus-field);
+  outline-offset: -1px;
+  box-shadow: none;
+}
+
+.app-shell {
+  display: flex;
+  height: 100dvh;
+  flex-direction: column;
+}
+
+.app-header {
+  position: relative;
+  z-index: 20;
+  display: grid;
+  min-height: 72px;
+  grid-template-columns: 300px 1fr auto;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.96);
+  padding: 0 var(--gutter);
+  box-shadow: 0 2px 14px rgba(46, 46, 42, 0.035);
+}
+
+.brand {
+  display: inline-flex;
+  width: max-content;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* Contained rather than stretched, so a drawing that is not square keeps its
+   shape inside the square it is given. */
+.brand-mark {
+  display: block;
+  width: 52px;
+  height: 52px;
+  object-fit: contain;
+}
+
+.brand-copy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  line-height: 1;
+}
+
+.brand-copy small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.brand-copy strong {
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.document-name {
+  display: flex;
+  justify-self: center;
+  align-items: center;
+  gap: 8px;
+  color: var(--gray-60);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.document-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--gray-20);
+}
+
+.document-name.is-edited .document-dot {
+  background: var(--primary);
+}
+
+.document-name-compact { display: none; }
+
+.header-actions,
+.history-actions {
+  display: flex;
+  align-items: center;
+}
+
+/* Held in the last column, so the buttons stay at the right edge when a narrow
+   window hides the document name that would otherwise sit between. */
+.header-actions { gap: var(--space-2); grid-column: 3; }
+
+.button,
+.zoom-button,
+.zoom-value {
+  border: 0;
+  cursor: pointer;
+  transition: transform 160ms ease, background-color 160ms ease, color 160ms ease, border-color 160ms ease, opacity 160ms ease;
+}
+
+.button:active:not(:disabled) {
+  transform: translateY(1px) scale(0.985);
+}
+
+.button:disabled,
+.zoom-button:disabled,
+.zoom-value:disabled {
+  cursor: not-allowed;
+  opacity: var(--disabled);
+}
+
+.button svg,
+.tool-card svg,
+.drop-overlay svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.button {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 11px;
+  padding: 0 15px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.button svg { width: 18px; height: 18px; }
+
+.button-secondary {
+  border: 1px solid var(--gray-20);
+  background: var(--surface);
+}
+
+.button-secondary:hover { border-color: var(--gray-50); background: var(--gray-5); }
+
+.button-primary {
+  min-width: 126px;
+  background: var(--primary);
+  color: white;
+  box-shadow: 0 6px 16px rgba(0, 94, 162, 0.2);
+}
+
+.button-primary:hover:not(:disabled) { background: var(--primary-dark); }
+.button-primary:active:not(:disabled) { background: var(--primary-darker); }
+
+/* The DADS disabled button, rather than a faded blue that reads as a lighter
+   button instead of one that cannot be pressed yet. */
+.button-primary:disabled {
+  background: var(--disabled-bg);
+  color: var(--disabled-text);
+  box-shadow: none;
+  opacity: 1;
+}
+
+.app-body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+}
+
+.side-panel {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  width: 300px;
+  flex: 0 0 300px;
+  flex-direction: column;
+  overflow-y: hidden;
+  overscroll-behavior-y: none;
+  border-right: 1px solid var(--line);
+  background: var(--surface);
+  padding: var(--space-4) var(--gutter) 0;
+}
+
+.side-panel.is-scrollable { overflow-y: auto; }
+
+/* Opening a picture hands the keyboard to the sidebar (app.js), which is where
+   Tab carries on from. It is not a control, so it draws no ring. */
+.side-panel:focus { outline: none; }
+
+.panel-section + .panel-section {
+  margin-top: var(--space-6);
+  border-top: 1px solid var(--gray-10);
+  padding-top: var(--space-6);
+}
+
+.tool-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: center;
+  gap: 5px;
+  border-radius: 14px;
+  background: var(--gray-5);
+  padding: 4px;
+}
+
+.tool-card {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  /* Tall enough that each tool reads as a thing to press, not a strip of text. */
+  height: 72px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--gray-70);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 170ms ease, color 170ms ease, box-shadow 170ms ease;
+}
+
+.tool-card svg { width: 28px; height: 28px; }
+.tool-card:hover:not(:disabled):not(.is-active) { background: rgba(255, 255, 255, 0.7); }
+
+/* A separator belongs only between two idle tools. It disappears beside the
+   selected tool and while either neighbour carries keyboard focus. */
+.tool-card + .tool-card::before {
+  position: absolute;
+  top: 50%;
+  left: -3px;
+  width: 1px;
+  height: 40px;
+  background: var(--gray-20);
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%);
+  transition: opacity 170ms ease;
+}
+
+.tool-card:not(.is-active):not(:focus-visible) + .tool-card:not(.is-active):not(:focus-visible)::before {
+  opacity: 1;
+}
+
+.tool-card.is-active {
+  background: var(--ink);
+  color: white;
+  box-shadow: 0 4px 10px rgba(46, 46, 42, 0.18);
+}
+
+.tool-card:focus-visible {
+  z-index: 1;
+  outline: none;
+}
+
+.tool-card:focus-visible::after {
+  position: absolute;
+  inset: -3px;
+  border: 3px solid var(--focus-outline);
+  border-radius: 13px;
+  box-shadow: inset 0 0 0 2px var(--gray-5);
+  content: "";
+  pointer-events: none;
+}
+
+.tool-list:has(.tool-card:focus-visible) .tool-card.is-active { box-shadow: none; }
+
+/* Before a picture the panel shows what is there without pretending to be in
+   use: no tool in hand, the settings resting, the colours quiet but still
+   readable. The line that says why is the one thing kept at full strength. */
+.side-panel:not(.is-ready) .tool-card { opacity: 0.72; }
+
+.side-panel:not(.is-ready) .tool-speech::before { display: none; }
+
+/* A touch that needs a picture points here for a moment: a ring grows outward
+   from the button's edge and fades, twice. The button itself does not move,
+   grow, or shake, and nothing takes the focus away from the hand. */
+.button.is-nudged { position: relative; }
+
+.button.is-nudged::after {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  content: "";
+  pointer-events: none;
+  animation: open-button-nudge 1s ease-out 2;
+}
+
+@keyframes open-button-nudge {
+  from { box-shadow: 0 0 0 0 rgba(0, 94, 162, 0.55); }
+  to { box-shadow: 0 0 0 16px rgba(0, 94, 162, 0); }
+}
+
+/* Asked not to animate, the same two seconds are held as a plain thick ring. */
+@media (prefers-reduced-motion: reduce) {
+  .button.is-nudged::after {
+    animation: none;
+    box-shadow: 0 0 0 4px rgba(0, 94, 162, 0.5);
+  }
+}
+.side-panel:not(.is-ready) .tool-speech-copy { color: var(--ink); }
+.side-panel:not(.is-ready) .settings-section { opacity: 0.3; }
+.side-panel:not(.is-ready) .color-section { opacity: 0.28; }
+
+.tool-card kbd {
+  position: absolute;
+  top: var(--space-2);
+  right: 10px;
+  color: var(--gray-60);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.tool-card.is-active kbd { color: rgba(255, 255, 255, 0.55); }
+
+/* What the tool in hand says. The tip sits under that tool, and the height is
+   the same for every tool, so the slider below never moves when switching. */
+.tool-speech {
+  position: relative;
+  display: flex;
+  height: 68px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin: var(--space-3) 0 0;
+  border: 1px solid var(--gray-20);
+  border-radius: 12px;
+  background: white;
+  padding: 9px 12px;
+  color: var(--gray-70);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.65;
+  white-space: pre-line;
+  box-shadow: 0 2px 8px rgba(46, 46, 42, 0.06);
+  transition: opacity 180ms ease;
+}
+
+.tool-speech-copy { width: 100%; }
+
+.tool-speech.has-guide-actions {
+  gap: 5px;
+  padding: 7px 8px;
+}
+
+.tool-speech.has-guide-actions .tool-speech-copy {
+  color: var(--guide-text);
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+/* Centred under each of the three equal tool columns, with 4px outer padding
+   and two 5px gaps. */
+.tool-speech::before {
+  position: absolute;
+  top: -6px;
+  left: calc(4px + (100% - 18px) / 6 - 6px);
+  width: 10px;
+  height: 10px;
+  border-top: 1px solid var(--gray-20);
+  border-left: 1px solid var(--gray-20);
+  background: white;
+  content: "";
+  transform: rotate(45deg);
+}
+
+.tool-speech[data-tool="bucket"]::before { left: calc(9px + (100% - 18px) / 2 - 6px); }
+.tool-speech[data-tool="guide"]::before { left: calc(14px + (100% - 18px) * 5 / 6 - 6px); }
+/* Before a picture this bubble carries the one line that says what to do, so it
+   keeps its full strength while the controls around it rest. */
+.side-panel:not(.is-ready) .tool-speech { opacity: 1; }
+
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.section-heading .value-field {
+  width: 42px;
+  height: 25px;
+  border: 1px solid var(--gray-20);
+  border-radius: 7px;
+  padding: 0;
+  appearance: textfield;
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  text-align: center;
+}
+
+.section-heading .value-field::-webkit-inner-spin-button,
+.section-heading .value-field::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+/* Turns beside the range while a changed setting is being redone, which takes a
+   second or two on a large picture (app.js). It stands in the free space before
+   the number, so the row keeps its height. A turning transform carries on while
+   the page is busy working the edit out. */
+.reapply-spinner {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-left: auto;
+  margin-right: 8px;
+  border: 2px solid var(--primary);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: reapply-spin 800ms linear infinite;
+}
+
+@keyframes reapply-spin { to { transform: rotate(360deg); } }
+
+.range {
+  width: 100%;
+  height: 5px;
+  margin: var(--space-1) 0 0;
+  appearance: none;
+  border-radius: 99px;
+  background: linear-gradient(to right, var(--primary) 80%, var(--gray-10) 80%);
+  cursor: pointer;
+}
+
+.range::-webkit-slider-thumb {
+  width: 17px;
+  height: 17px;
+  appearance: none;
+  border: 4px solid white;
+  border-radius: 50%;
+  background: var(--primary);
+  box-shadow: 0 1px 5px rgba(46, 46, 42, 0.3);
+}
+
+.range::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border: 4px solid white;
+  border-radius: 50%;
+  background: var(--primary);
+  box-shadow: 0 1px 5px rgba(46, 46, 42, 0.3);
+}
+
+.range:disabled {
+  cursor: not-allowed;
+}
+
+.panel-section {
+  transition: opacity 180ms ease;
+}
+
+.panel-section[aria-disabled="true"] {
+  opacity: var(--disabled);
+}
+
+.color-section[aria-disabled="true"] {
+  pointer-events: none;
+}
+
+.color-hex {
+  width: 76px;
+  height: 25px;
+  border: 1px solid var(--gray-20);
+  border-radius: 7px;
+  padding: 0;
+  background: var(--surface);
+  color: var(--gray-60);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+/* Sits under the range because it answers the same question the range does -
+   how much of the picture one click takes in - rather than being a tool of its
+   own. Reaching for it is adjusting the edit, so it does not settle it. */
+.scope-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px;
+  margin-top: var(--space-3);
+  border-radius: 9px;
+  background: var(--gray-5);
+  padding: 3px;
+}
+
+.scope-toggle label {
+  position: relative;
+  display: block;
+  cursor: pointer;
+}
+
+.scope-toggle input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+
+/* Both sides of the switch, and of the palette tabs below, are open to the user,
+   so neither may look switched off: the side not chosen is as dark as the labels
+   around it, and the white ground is what marks the chosen one. At 11px the
+   lighter Hiragino faces read as disabled, so the words stay one step heavier. */
+.scope-toggle span {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  color: var(--gray-70);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.scope-toggle label:hover span { background: rgba(255, 255, 255, 0.58); }
+.scope-toggle input:checked + span { background: var(--surface); color: var(--ink); box-shadow: 0 1px 4px rgba(46, 46, 42, 0.1); }
+.scope-toggle input:focus-visible + span { outline: 2px solid var(--focus-outline); outline-offset: 2px; }
+.settings-section[aria-disabled="true"] .scope-toggle label { cursor: not-allowed; }
+
+/* The two toggles side by side. The panel is a fixed width, so they are laid
+   out to fit it rather than to wrap. */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  column-gap: var(--space-4);
+}
+
+/* As heavy as the switch under it, for the same reason: one step lighter, the
+   words look switched off beside it. */
+.include-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: var(--space-3);
+  color: var(--gray-70);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.include-toggle input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--primary);
+  cursor: inherit;
+}
+
+/* Chrome keeps a native checkbox's corners square, and its outline with them,
+   so the ring is drawn around the box by the label instead: the same 2px line
+   and 2px gap as every other ring, with its corners rounded. */
+.include-toggle { position: relative; }
+.include-toggle input:focus-visible { outline: none; }
+.include-toggle:has(input:focus-visible)::before {
+  position: absolute;
+  top: 50%;
+  left: -4px;
+  width: 23px;
+  height: 23px;
+  box-sizing: border-box;
+  border: 2px solid var(--focus-outline);
+  border-radius: 6px;
+  content: "";
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.settings-section[aria-disabled="true"] .include-toggle { cursor: not-allowed; }
+
+/* The heading names the bar right under it, so the two sit close together. */
+.settings-section .section-heading { margin-bottom: 0; }
+.settings-section .range { margin-top: 0; }
+
+.color-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.color-chip {
+  position: relative;
+  display: block;
+  width: 25px;
+  height: 25px;
+  cursor: pointer;
+}
+
+/* Only when the keyboard brought focus here: a click opens the colour picker,
+   and a ring around the swatch as well would only get in the way. */
+.color-chip:has(input:focus-visible) {
+  border-radius: 8px;
+  outline: 2px solid var(--focus-outline);
+  outline-offset: 2px;
+}
+
+.color-chip input[type="color"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.color-preview {
+  display: block;
+  width: 25px;
+  height: 25px;
+  border: 0;
+  border-radius: 7px;
+  background: #ff7628;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 2px 5px rgba(46, 46, 42, 0.1);
+}
+
+.recent-colors {
+  margin-top: var(--space-4);
+}
+
+.recent-heading {
+  display: block;
+  margin-bottom: var(--space-2);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+}
+
+.recent-swatches {
+  display: grid;
+  grid-template-columns: repeat(13, minmax(0, 1fr));
+  gap: 3px;
+  justify-items: center;
+}
+
+.recent-slot {
+  width: 100%;
+  max-width: 25px;
+  aspect-ratio: 1;
+  border: 1px dashed var(--gray-20);
+  border-radius: 7px;
+}
+
+.preset-palette {
+  margin-top: var(--space-4);
+  border-top: 1px solid var(--gray-10);
+  padding-top: var(--space-4);
+}
+
+.tool-section + .settings-section {
+  margin-top: var(--space-6);
+  border-top: 0;
+  padding-top: 0;
+}
+
+.palette-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px;
+  margin-top: 0;
+  border-radius: 9px;
+  background: var(--gray-5);
+  padding: 3px;
+}
+
+.palette-tab {
+  display: flex;
+  min-width: 0;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 2px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  padding: 4px 6px;
+  color: var(--gray-70);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.palette-tab:hover:not(:disabled) { background: rgba(255, 255, 255, 0.58); }
+.palette-tab.is-active { background: var(--surface); color: var(--ink); box-shadow: 0 1px 4px rgba(46, 46, 42, 0.1); }
+.palette-tab:focus-visible { position: relative; z-index: 1; }
+.palette-tab:disabled { cursor: not-allowed; }
+
+.palette-families {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  margin-top: var(--space-3);
+}
+
+/* The credit the Digital Agency asks for, with the link on the site's name in
+   place of its address, as the Digital Agency copyright policy allows. The link
+   follows the DADS link text guidance: a colour and an underline, and an icon at
+   the end saying that it opens a new tab. */
+.palette-credit {
+  margin: var(--space-4) 0 0;
+  color: var(--credit-text);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+/* A footnote, so the link stays out of the theme blue and in the same grey as
+   the words after it; the underline alone marks it, thickening on hover as in
+   the DADS link text states. */
+.palette-credit a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.palette-credit a:hover { text-decoration-thickness: 2px; }
+
+/* Kept whole, so a narrow line breaks after the link instead of inside a word. */
+.palette-credit span { white-space: nowrap; }
+
+.new-tab-icon {
+  width: 1.1em;
+  height: 1.1em;
+  margin-left: 2px;
+  vertical-align: -0.2em;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+
+.palette-family {
+  display: grid;
+  min-width: 0;
+  align-items: center;
+  gap: 3px;
+}
+
+.palette-family--dads {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+
+.palette-family--uswds {
+  grid-template-columns: repeat(var(--palette-columns), minmax(0, 1fr));
+}
+
+.palette-swatches {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(var(--palette-columns), minmax(0, 1fr));
+  gap: 3px;
+}
+
+.swatch {
+  position: relative;
+  width: 100%;
+  max-width: 25px;
+  aspect-ratio: 1;
+  /* A button carries the browser's own padding until it is told otherwise, and
+     iOS Safari's is 15px on each side. A border-box element cannot be narrower
+     than its padding and border, so each swatch sat 33px wide in a 19px column
+     and lay over the one beside it: measured on an iPad, -10.8px between them.
+     Chrome pads a button by 6px, which fits, which is why it never showed. */
+  padding: 0;
+  justify-self: center;
+  border: 1.5px solid var(--surface);
+  border-radius: 7px;
+  background: var(--swatch);
+  box-shadow: 0 0 0 1px var(--gray-20);
+  cursor: pointer;
+  transition: transform 140ms ease, box-shadow 140ms ease;
+}
+
+.swatch.is-selected {
+  z-index: 2;
+  box-shadow: 0 0 0 2px var(--ink);
+}
+
+/* Remember the paint colour without marking it while another tool is in hand. */
+.color-section.is-paint-tool-inactive .swatch.is-selected {
+  box-shadow: 0 0 0 1px var(--gray-20);
+}
+
+.swatch:disabled { cursor: not-allowed; }
+
+/* Focus supplies the black outer ring. Keep the swatch's usual pale frame
+   inside it so a selected swatch does not add a second black ring. */
+.swatch:focus-visible {
+  z-index: 2;
+  box-shadow: 0 0 0 1px var(--gray-20);
+}
+
+/* A swatch being inspected stays above the selected or focused neighbour, so
+   its enlarged edge remains visible on both sides. */
+.swatch:hover { z-index: 3; transform: scale(1.2); }
+
+.swatch-tooltip {
+  position: fixed;
+  z-index: 200;
+  max-width: min(280px, calc(100vw - 16px));
+  border-radius: 7px;
+  background: var(--gray-80);
+  color: white;
+  padding: 6px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  pointer-events: none;
+  white-space: nowrap;
+  box-shadow: 0 6px 16px rgba(46, 46, 42, 0.2);
+}
+
+.workspace {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  grid-template-rows: 46px minmax(0, 1fr);
+  background: var(--canvas-bg);
+}
+
+.workspace-topbar {
+  position: relative;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--gray-60);
+  padding: 0 var(--gutter);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.workspace-topbar { border-bottom: 1px solid var(--gray-10); }
+
+.workspace-controls,
+.canvas-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workspace-controls {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.canvas-meta { flex: none; }
+
+.guide-help-line {
+  position: absolute;
+  z-index: 1;
+  left: 50%;
+  display: flex;
+  min-width: 0;
+  max-width: calc(100% - 420px);
+  align-items: center;
+  gap: 5px;
+  color: var(--gray-60);
+  margin: 0;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+.guide-help-line span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.guide-help-line strong {
+  color: var(--gray-70);
+  font-weight: 800;
+}
+
+/* The short wording is for a narrow window, where the full one would wrap in
+   the middle of a hint. Each hint stays whole, so if a line ever has to break
+   it breaks between hints, never inside one. */
+.guide-help-short { display: none; }
+
+/* Tapped, not clicked, where the screen is worked by touch or pencil. The class
+   is the same answer the corner button is shown by, so the words and the button
+   never disagree — including on a tablet that only owns up to a pencil once one
+   has been used. */
+.word-touch { display: none; }
+
+body.has-touch .word-pointer { display: none; }
+body.has-touch .word-touch { display: inline; }
+
+/* A pencil cannot manage a double tap — two of its taps measured over a second
+   apart on an iPad — so where the screen can be touched, changing a corner is a
+   button of its own rather than a gesture to get right. It is the ordinary way
+   to do it there, not a way round a failure, so it sits in the line among the
+   other things the tool can do. A mouse double-clicks and is shown that. */
+.guide-help-action { display: none; }
+
+body.has-touch .guide-help-mouse { display: none; }
+
+body.has-touch .guide-help-action {
+  position: relative;
+  display: inline-flex;
+  /* The line clips whatever leaves it, so the finger's room has to be the
+     button's own: taller than the words beside it, but still sitting on their
+     line and clear of the bar's edge, which the line is drawn right up against. */
+  height: 28px;
+  margin-bottom: 4px;
+  align-items: center;
+  /* The same two ideographic spaces that separate the hints, so the button sits
+     in the line at the rhythm the words keep. */
+  margin-left: 22px;
+  border: 1px solid var(--gray-30);
+  border-radius: 6px;
+  background: white;
+  padding: 0 8px;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+body.has-touch .guide-help-action[aria-pressed="true"] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: white;
+}
+
+.guide-help-item {
+  display: inline-block;
+  margin: 0 6px;
+  white-space: nowrap;
+}
+
+.guide-help-line[hidden] {
+  display: none;
+}
+
+.guide-help-line svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 1.7;
+}
+
+/* The undo and redo arrows are drawn on a 24-unit grid and turn a corner, so
+   they keep a rounded join and a weight of 3, which at 14px lands on the line
+   the zoom marks draw at 2 on their 16-unit grid. Their heads point outward
+   and weigh more than the small zoom marks, so the pair takes 2px more on the
+   outside to look as roomy as the zoom group does. */
+.history-actions { padding-inline: 2px; }
+.history-actions .zoom-button svg { width: 14px; height: 14px; stroke-width: 3; stroke-linejoin: round; }
+.history-divider { width: 1px; height: 14px; flex: none; background: var(--gray-20); }
+
+.meta-chip {
+  border-radius: 4px;
+  background: var(--gray-10);
+  color: var(--gray-70);
+  padding: 3px 5px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+}
+
+.canvas-viewport {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background-image: radial-gradient(circle at 1px 1px, rgba(118, 118, 106, 0.2) 1px, transparent 0);
+  background-size: 20px 20px;
+}
+
+/* One centred column - the drawing, the headline, the line under it, the button -
+   so nothing leans to one side, and the layout is the same at every width. */
+.empty-state {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 380px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-6);
+  text-align: center;
+  /* More room below than above: dead centre reads as sitting low on the screen.
+     The column's middle lands about a sixteenth of the canvas above the middle
+     of it, which is where the eye looks for the centre.
+     --empty-shift, measured by the script, is how far the header's centre line
+     (the document name) sits left of the canvas's; twice that on the right moves
+     the column onto the same line. */
+  padding: calc(var(--space-6) * 2) calc(var(--space-6) * 2 + var(--empty-shift, 0px) * 2) calc(14vh + 16px) calc(var(--space-6) * 2);
+}
+
+/* The drawing is taller than it is wide, so the width is what is sized and the
+   height follows it. */
+.empty-illustration {
+  display: block;
+  /* Small enough that the headline, not the face, is the first thing read. */
+  width: 104px;
+  height: auto;
+  flex: 0 0 auto;
+}
+
+/* Pochi at his easel, small and faint, in the bottom right corner where a
+   copyright line would go, so the canvas reads as ending there. He keeps as far
+   from the edges as the top bar keeps from its sides; app.js sets how wide he is.
+   He stays behind the column and lets every click and drop through. */
+.empty-state { position: relative; z-index: 0; }
+
+.empty-decor {
+  position: absolute;
+  z-index: -1;
+  right: var(--gutter);
+  bottom: var(--gutter);
+  width: var(--decor-width);
+  height: auto;
+  opacity: 0.15;
+  pointer-events: none;
+}
+
+.empty-copy { max-width: 520px; }
+
+.empty-copy h2 {
+  margin: 0;
+  font-size: clamp(28px, 2.8vw, 40px);
+  font-weight: 800;
+  letter-spacing: -0.06em;
+  line-height: 1.28;
+}
+
+/* Each phrase is kept whole, so a narrow line breaks after 、 instead of
+   leaving a word's last letters alone on the next line. */
+.empty-copy h2 span,
+.empty-copy p span { white-space: nowrap; }
+
+/* A 、 or 。 is small and light, so the eye centres a line on its words. The
+   whole mark hangs past the line, as in hanging punctuation, and the words
+   alone take the middle. */
+.hanging-punct { margin-right: -1em; }
+
+/* The full-width １ is a thin stroke in the middle of its square, so the empty
+   quarter on its left is let out past the line the same way. */
+.hanging-digit { margin-left: -0.25em; }
+
+/* Close under the headline, as one piece of text; Pochi above and the button
+   below stand apart from it by about the same distance. */
+.empty-copy p {
+  margin: var(--space-1) 0 var(--space-6);
+  color: var(--gray-60);
+  font-size: 14px;
+  line-height: 1.9;
+}
+
+.button-empty {
+  min-width: 304px;
+  min-height: 72px;
+  gap: 12px;
+  border-radius: 15px;
+  /* Centring the icon and the words together leaves the words looking pushed to
+     the right, since the thin icon weighs less than the words; centring the words
+     alone tips it the other way. Half the icon and its gap (15px) goes to the
+     right side, between the two: 18px here, for a 24px icon and a 12px gap. */
+  padding: 0 54px 0 36px;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  /* The USWDS default button: primary at rest, primary-dark under the pointer
+     and primary-darker while pressed. */
+  background: var(--primary);
+  color: white;
+  box-shadow: 0 8px 18px rgba(0, 94, 162, 0.24);
+}
+
+.button-empty svg { width: 24px; height: 24px; }
+
+.button-empty:hover { background: var(--primary-dark); }
+.button-empty:active { background: var(--primary-darker); }
+
+.canvas-stage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  overflow: auto;
+  padding: 21px 44px 67px;
+  /* A pencil or finger stroke here belongs to the picture, and two fingers zoom
+     and pan it from app.js, so the browser does neither on its own. */
+  touch-action: none;
+}
+
+.canvas-stage::after {
+  content: "";
+  min-width: 1px;
+  min-height: 1px;
+  flex: 0 0 1px;
+}
+
+.is-hidden { display: none !important; }
+
+.canvas-frame {
+  position: relative;
+  flex: 0 0 auto;
+  margin: auto;
+  border-radius: 3px;
+  background-color: white;
+  background-image: linear-gradient(45deg, var(--gray-10) 25%, transparent 25%), linear-gradient(-45deg, var(--gray-10) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, var(--gray-10) 75%), linear-gradient(-45deg, transparent 75%, var(--gray-10) 75%);
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  background-size: 16px 16px;
+  box-shadow: 0 18px 55px rgba(46, 46, 42, 0.19), 0 0 0 1px rgba(46, 46, 42, 0.08);
+  line-height: 0;
+}
+
+/* Marks the pixel the tolerance slider is moving. It only shows while that
+   slider is in use, so nothing sits on the artwork the rest of the time. */
+.edit-marker {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.95), inset 0 0 0 1.5px rgba(255, 255, 255, 0.95);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+/* The guide lines live above the picture and are never part of it, so they sit
+   on their own overlay that the export never touches. */
+.guide-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+  shape-rendering: geometricPrecision;
+}
+
+.guide-actions {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.guide-action {
+  height: 27px;
+  border: 1px solid var(--gray-20);
+  border-radius: 6px;
+  background: var(--gray-5);
+  padding: 0 7px;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.guide-action:hover:not([aria-pressed="true"]) {
+  background: var(--gray-10);
+}
+
+.guide-action[aria-pressed="true"] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: #ffffff;
+}
+
+#editorCanvas {
+  display: block;
+  max-width: none;
+  cursor: crosshair;
+  image-rendering: auto;
+}
+
+/* Shrunk to fit, the picture is resampled and smoothing is what keeps it from
+   crawling. At its own size and beyond there is nothing to smooth: the pixels
+   are the thing being looked at, and blurring them hides the very edge the user
+   opened the tool to check. The guide overlay keeps its own smoothing - it is a
+   line to follow, not artwork. */
+#editorCanvas.is-magnified {
+  image-rendering: pixelated;
+}
+
+/* Over a point the cursor turns into the arrow Photoshop shows for moving one,
+   so the difference between "place a point here" and "take hold of this one" is
+   visible before the press. */
+#editorCanvas.is-over-point {
+  cursor:
+    url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20'%3E%3Cpath d='M3 2 L3 17 L7 13 L10 19 L13 18 L10 12 L15 12 Z' fill='%23ffffff' stroke='%23111111' stroke-width='1.2' stroke-linejoin='round'/%3E%3C/svg%3E") 3 2,
+    move;
+}
+
+/* A click on an existing point continues from it; a drag still moves it. */
+#editorCanvas.can-continue-guide,
+#editorCanvas.can-connect-guide { cursor: crosshair; }
+
+/* Either point mode still starts a new line on empty canvas. Over a point, the
+   hand says that the mode's point action will be used instead. */
+#editorCanvas.is-erasing-point.is-over-point { cursor: pointer; }
+
+#editorCanvas.is-busy { cursor: progress; }
+
+.drop-overlay {
+  position: absolute;
+  z-index: 30;
+  inset: var(--gutter);
+  display: none;
+  place-items: center;
+  border: 2px dashed var(--primary);
+  border-radius: 20px;
+  background: rgba(232, 245, 255, 0.93); /* USWDS blue-5v */
+  backdrop-filter: blur(5px);
+  color: var(--primary);
+}
+
+.drop-overlay.is-visible { display: grid; }
+.drop-overlay > div { display: flex; align-items: center; flex-direction: column; gap: 7px; }
+.drop-overlay svg { width: 31px; height: 31px; margin-bottom: 4px; }
+.drop-overlay strong { color: var(--ink); font-size: 16px; }
+.drop-overlay span { color: var(--gray-60); font-size: 11px; }
+
+.history-actions,
+.zoom-controls {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  overflow: hidden;
+  border: 1px solid var(--gray-20);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.zoom-button,
+.zoom-value {
+  height: 27px;
+  background: transparent;
+  color: var(--gray-60);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.zoom-button {
+  display: grid;
+  width: 28px;
+  place-items: center;
+}
+
+.zoom-button svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 2;
+}
+
+.zoom-value { min-width: 48px; padding: 0 5px; font-size: 11px; }
+.zoom-button:hover:not(:disabled), .zoom-value:hover:not(:disabled) { background: white; }
+
+/* The three sit edge to edge in a strip that clips what it holds, so a ring
+   drawn outside the button is cut away by it and nothing shows. Drawing the
+   ring inside keeps all of it, and the lit face says which one is in hand. */
+.zoom-button:focus-visible,
+.zoom-value:focus-visible {
+  border-radius: 6px;
+  outline: 2px solid var(--focus-outline);
+  outline-offset: -4px;
+  background: white;
+  color: var(--ink);
+}
+
+.toast {
+  position: fixed;
+  z-index: 100;
+  right: var(--gutter);
+  bottom: var(--gutter);
+  max-width: min(350px, calc(100vw - var(--gutter) * 2));
+  transform: translateY(18px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  background: var(--gray-80);
+  color: white;
+  padding: 12px 16px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  opacity: 0;
+  pointer-events: none;
+  box-shadow: 0 12px 30px rgba(46, 46, 42, 0.25);
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.toast.is-visible { transform: translateY(0); opacity: 1; }
+
+.toast.is-error {
+  border-color: var(--error);
+  background: var(--error-deep);
+  padding-right: 48px;
+  pointer-events: auto;
+}
+
+/* The red border says "error" only to someone who can see the colour and knows
+   this app's palette. The word says it to everyone, at a glance. */
+.toast-label {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--error-soft);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+
+.toast-label[hidden] { display: none; }
+
+.toast-dismiss {
+  position: absolute;
+  /* Lined up with the word "エラー" beside it, not with the block: the button is
+     32px tall for the finger, so its box reaches well below that row. */
+  top: 1px;
+  right: 5px;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--error-soft);
+  padding: 0;
+  font-size: 18px;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.toast-dismiss:hover { background: rgba(255, 255, 255, 0.1); }
+.toast-dismiss:focus-visible { outline-color: white; outline-offset: 1px; }
+.toast-dismiss[hidden] { display: none; }
+
+@media (max-width: 900px) {
+  .app-header { grid-template-columns: 190px 1fr auto; }
+  .brand-mark { width: 42px; height: 42px; }
+  .brand { gap: var(--space-2); }
+  .brand-copy strong { font-size: 16px; }
+  .brand-copy small { font-size: 11px; }
+  .document-name { display: none; }
+  .document-name.is-edited { display: flex; }
+  .document-name-full { display: none; }
+  .document-name-compact { display: inline; }
+  .guide-help-full { display: none; }
+  .guide-help-short { display: inline; }
+  .empty-state { padding: var(--space-6); }
+  .empty-illustration { width: 88px; }
+  .empty-copy { max-width: 400px; }
+  .empty-copy h2 { font-size: 30px; }
+}
+
+/* On a laptop-height screen, reclaim a few pixels from each generous vertical
+   gap so the palette credit is fully visible instead of looking deliberately
+   clipped. The controls keep their sizes and only the surrounding air tightens. */
+@media (max-height: 900px) and (min-width: 701px) {
+  .side-panel { padding-top: var(--space-2); }
+  .tool-speech { margin-top: var(--space-2); }
+  .tool-section + .settings-section { margin-top: var(--space-3); }
+  .settings-section + .color-section { margin-top: var(--space-3); padding-top: var(--space-3); }
+  .recent-colors { margin-top: var(--space-2); }
+  .preset-palette { margin-top: var(--space-2); padding-top: var(--space-2); }
+  .palette-families { gap: var(--space-1); margin-top: var(--space-1); }
+  .palette-credit { margin-top: var(--space-1); }
+}
+
+/* Set from app.js only when the window would show the whole palette but leave the
+   credit under it cut off or pressed against the bottom edge. The spacing gives
+   back what the credit needs, in turn: first the room above the tools, then the
+   header, then the gaps between sections, and only then the small gaps inside
+   them. Each step runs from 0, as it was, to 1, as far as it goes, so a window a
+   few pixels short changes by a few pixels, and where there is room to spare it
+   goes first. At 1 both spacings arrive at the same place; no control changes
+   size. The fill colour keeps a wider gap above it and a closer one inside, so it
+   still reads as its own group. */
+.app-shell.is-tight .side-panel { padding-top: calc(16px - 12px * var(--tight-top, 1)); }
+.app-shell.is-tight .app-header { min-height: calc(72px - 12px * var(--tight-header, 1)); }
+.app-shell.is-tight .tool-section + .settings-section { margin-top: calc(24px - 16px * var(--tight-sections, 1)); }
+.app-shell.is-tight .settings-section + .color-section {
+  margin-top: calc(24px - 14px * var(--tight-sections, 1));
+  padding-top: calc(24px - 14px * var(--tight-sections, 1));
+}
+.app-shell.is-tight .recent-colors { margin-top: calc(16px - 11px * var(--tight-sections, 1)); }
+.app-shell.is-tight .preset-palette {
+  margin-top: calc(16px - 10px * var(--tight-sections, 1));
+  padding-top: calc(16px - 10px * var(--tight-sections, 1));
+}
+.app-shell.is-tight .palette-credit { margin-top: calc(16px - 16px * var(--tight-sections, 1)); }
+.app-shell.is-tight .include-toggle,
+.app-shell.is-tight .scope-toggle { margin-top: calc(12px - 4px * var(--tight-gaps, 1)); }
+.app-shell.is-tight .recent-heading { margin-bottom: calc(8px - 3px * var(--tight-gaps, 1)); }
+
+/* The same squeeze, starting from the laptop-height spacing above. */
+@media (max-height: 900px) and (min-width: 701px) {
+  .app-shell.is-tight .side-panel { padding-top: calc(8px - 4px * var(--tight-top, 1)); }
+  .app-shell.is-tight .tool-section + .settings-section { margin-top: calc(12px - 4px * var(--tight-sections, 1)); }
+  .app-shell.is-tight .settings-section + .color-section {
+    margin-top: calc(12px - 2px * var(--tight-sections, 1));
+    padding-top: calc(12px - 2px * var(--tight-sections, 1));
+  }
+  .app-shell.is-tight .recent-colors { margin-top: calc(8px - 3px * var(--tight-sections, 1)); }
+  .app-shell.is-tight .preset-palette {
+    margin-top: calc(8px - 2px * var(--tight-sections, 1));
+    padding-top: calc(8px - 2px * var(--tight-sections, 1));
+  }
+  .app-shell.is-tight .palette-credit { margin-top: calc(4px - 4px * var(--tight-sections, 1)); }
+}
+
+@media (max-height: 690px) and (min-width: 701px) {
+  .side-panel { padding-top: var(--space-3); }
+  .panel-section + .panel-section { margin-top: var(--space-4); padding-top: var(--space-4); }
+  .empty-illustration { width: 88px; }
+}
+
+@media (max-height: 560px) and (min-width: 701px) {
+  .workspace { grid-template-rows: 38px minmax(0, 1fr); }
+  .canvas-stage { padding: 25px 44px 63px; }
+  .empty-state { min-height: 0; gap: var(--space-3); padding: var(--space-3) var(--space-6); }
+  .empty-illustration { width: 64px; }
+  .empty-copy h2 { font-size: 26px; }
+  .empty-copy p { margin: 0 0 var(--space-3); line-height: 1.55; }
+  /* The one button that starts everything keeps a comfortable target even
+     where the height is tight: smaller than usual, never small. */
+  .button-empty { min-height: 48px; padding: 0 48px 0 30px; font-size: 17px; }
+}
+
+/* The same line on a short screen. Below 900px wide the document name is hidden,
+   so there is no line to meet and the group stays in the canvas's middle. */
+@media (max-height: 560px) and (min-width: 901px) {
+  .empty-state { padding-right: calc(var(--space-6) + var(--empty-shift, 0px) * 2); }
+}
+
+@media (max-width: 1180px) {
+  .workspace { grid-template-rows: 78px minmax(0, 1fr); }
+  .canvas-stage { padding: 8px 44px 86px; }
+
+  .workspace-topbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: 46px 32px;
+  }
+
+  .workspace-controls { grid-column: 1; grid-row: 1; }
+  .canvas-meta { grid-column: 2; grid-row: 1; }
+
+  .guide-help-line {
+    position: static;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    max-width: 100%;
+    justify-self: center;
+    overflow: visible;
+    line-height: 1.35;
+    text-align: center;
+    white-space: normal;
+    transform: none;
+  }
+
+  .guide-help-line span {
+    overflow: visible;
+    text-overflow: clip;
+  }
+}
+
+@media (max-width: 1180px) and (max-height: 560px) {
+  .workspace { grid-template-rows: 66px minmax(0, 1fr); }
+  .workspace-topbar { grid-template-rows: 38px 28px; }
+  .canvas-stage { padding: 11px 44px 77px; }
+  .guide-help-line { font-size: 10px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+  /* Spun that fast the arc would flicker. Held still, it still says a redo is under way. */
+  .reapply-spinner { animation: none; }
+}
